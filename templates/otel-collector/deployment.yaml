@@ -40,13 +40,13 @@ spec:
             - name: otlp-grpc
               containerPort: 4317
               protocol: TCP
-              {{- if eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet" }}
+              {{- if and (eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet") (or (not (hasKey .Values.otelCollector "hostPort")) .Values.otelCollector.hostPort) }}
               hostPort: 4317
               {{- end }}
             - name: otlp-http
               containerPort: 4318
               protocol: TCP
-              {{- if eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet" }}
+              {{- if and (eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet") (or (not (hasKey .Values.otelCollector "hostPort")) .Values.otelCollector.hostPort) }}
               hostPort: 4318
               {{- end }}
             - name: healthcheck

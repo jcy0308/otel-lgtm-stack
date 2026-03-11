@@ -33,6 +33,7 @@ spec:
         - name: mimir
           image: "{{ .Values.mimir.image.repository }}:{{ .Values.mimir.image.tag }}"
           imagePullPolicy: {{ .Values.mimir.image.pullPolicy | default "IfNotPresent" }}
+          workingDir: /data/mimir
           args:
             - -config.file=/etc/mimir/mimir.yaml
             - -target=all
@@ -73,6 +74,10 @@ spec:
         - name: config
           configMap:
             name: {{ include "observability.fullname" . }}-mimir-config
+        {{- if not .Values.mimir.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.mimir.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -96,8 +101,5 @@ spec:
         resources:
           requests:
             storage: {{ .Values.mimir.persistence.size | default "20Gi" }}
-  {{- else }}
-      - name: data
-        emptyDir: {}
   {{- end }}
 {{- end }}

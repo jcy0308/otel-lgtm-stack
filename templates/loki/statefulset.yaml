@@ -70,6 +70,10 @@ spec:
         - name: config
           configMap:
             name: {{ include "observability.fullname" . }}-loki-config
+        {{- if not .Values.loki.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.loki.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -93,8 +97,5 @@ spec:
         resources:
           requests:
             storage: {{ .Values.loki.persistence.size | default "10Gi" }}
-  {{- else }}
-      - name: data
-        emptyDir: {}
   {{- end }}
 {{- end }}

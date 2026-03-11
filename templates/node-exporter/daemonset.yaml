@@ -25,9 +25,9 @@ spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "observability.fullname" . }}-node-exporter
       automountServiceAccountToken: false
-      hostNetwork: true
+      hostNetwork: {{ if hasKey .Values.nodeExporter "hostNetwork" }}{{ .Values.nodeExporter.hostNetwork }}{{ else }}true{{ end }}
       hostPID: true
-      dnsPolicy: ClusterFirstWithHostNet
+      dnsPolicy: {{ if (and (hasKey .Values.nodeExporter "hostNetwork") (not .Values.nodeExporter.hostNetwork)) }}ClusterFirst{{ else }}ClusterFirstWithHostNet{{ end }}
       securityContext:
         runAsNonRoot: true
         runAsUser: 65534
@@ -54,7 +54,9 @@ spec:
           ports:
             - name: metrics
               containerPort: {{ .Values.nodeExporter.service.port | default 9100 }}
+              {{- if (or (not (hasKey .Values.nodeExporter "hostPort")) .Values.nodeExporter.hostPort) }}
               hostPort: {{ .Values.nodeExporter.service.port | default 9100 }}
+              {{- end }}
               protocol: TCP
           livenessProbe:
             httpGet:

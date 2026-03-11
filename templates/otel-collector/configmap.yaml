@@ -73,6 +73,22 @@ data:
                 - source_labels: [__meta_kubernetes_endpoint_node_name]
                   target_label: node
             {{- end }}
+            {{- with .Values.otelCollector.config.prometheusReceiver.externalScrapeTargets }}
+            {{- if .mysql.enabled }}
+            - job_name: '{{ .mysql.jobName | default "onprem-mysql" }}'
+              scrape_interval: {{ .mysql.scrapeInterval | default "30s" }}
+              metrics_path: {{ .mysql.metricsPath | default "/metrics" }}
+              static_configs:
+                {{- range .mysql.targets }}
+                - targets:
+                    - {{ .endpoint | quote }}
+                  {{- if .labels }}
+                  labels:
+                    {{- toYaml .labels | nindent 20 }}
+                  {{- end }}
+                {{- end }}
+            {{- end }}
+            {{- end }}
       {{- end }}
 
       {{- if .Values.otelCollector.config.k8sEventsReceiver.enabled }}
@@ -218,12 +234,6 @@ data:
           max_interval: 30s
           max_elapsed_time: 300s
         {{- end }}
-        {{- if .Values.otelCollector.config.exporterQueue.enabled }}
-        sending_queue:
-          enabled: true
-          num_consumers: {{ .Values.otelCollector.config.exporterQueue.numConsumers | default 10 }}
-          queue_size: {{ .Values.otelCollector.config.exporterQueue.queueSize | default 5000 }}
-        {{- end }}
       {{- end }}
 
       # Loki로 로그 전송
@@ -244,7 +254,7 @@ data:
       # Tempo로 트레이스 전송
       {{- if .Values.tempo.enabled }}
       otlp/tempo:
-        endpoint: {{ include "observability.fullname" . }}-tempo:{{ .Values.tempo.service.grpcPort }}
+        endpoint: {{ include "observability.fullname" . }}-tempo:{{ .Values.tempo.service.otlpGrpcPort | default 4317 }}
         tls:
           insecure: true
         {{- if .Values.otelCollector.config.exporterRetry.enabled }}

@@ -49,16 +49,16 @@ grafana:
 
   resources:
     requests:
-      cpu: 250m
-      memory: 256Mi
+      cpu: 100m
+      memory: 128Mi
     limits:
-      cpu: 1000m
-      memory: 1Gi
+      cpu: 500m
+      memory: 512Mi
 
   persistence:
     enabled: true
     accessMode: ReadWriteOnce
-    size: 10Gi
+    size: 2Gi
 
   service:
     type: ClusterIP
@@ -89,7 +89,7 @@ grafana:
 loki:
   enabled: true
   # -- 2노드 환경: 2 replicas로 HA 구성
-  replicas: 2
+  replicas: 1
 
   image:
     repository: grafana/loki
@@ -99,26 +99,26 @@ loki:
     authEnabled: false
     logLevel: info
     # -- 2노드이므로 replicationFactor=2 (데이터 유실 방지)
-    replicationFactor: 2
-    retentionPeriod: "720h"         # 30일 보존
-    cacheSize: 300
-    ingestionRateMb: 30
-    ingestionBurstSizeMb: 60
-    maxStreamsPerUser: 30000
-    maxQuerySeries: 1500
+    replicationFactor: 1
+    retentionPeriod: "72h"          # 3일 보존
+    cacheSize: 100
+    ingestionRateMb: 10
+    ingestionBurstSizeMb: 20
+    maxStreamsPerUser: 5000
+    maxQuerySeries: 300
 
   resources:
     requests:
-      cpu: 1000m
-      memory: 2Gi
+      cpu: 200m
+      memory: 512Mi
     limits:
-      cpu: 4000m
-      memory: 6Gi
+      cpu: 1000m
+      memory: 1Gi
 
   persistence:
     enabled: true
     accessMode: ReadWriteOnce
-    size: 50Gi
+    size: 5Gi
 
   nodeSelector: {}
   tolerations:
@@ -142,7 +142,7 @@ loki:
 tempo:
   enabled: true
   # -- 2노드 환경: 2 replicas로 분산
-  replicas: 2
+  replicas: 1
 
   image:
     repository: grafana/tempo
@@ -150,22 +150,22 @@ tempo:
 
   config:
     logLevel: info
-    retentionPeriod: "336h"         # 14일 보존
+    retentionPeriod: "72h"          # 3일 보존
     maxBlockDuration: "5m"
-    maxBlockBytes: 1073741824       # 1GB
+    maxBlockBytes: 268435456        # 256MB
 
   resources:
     requests:
-      cpu: 500m
-      memory: 1Gi
+      cpu: 200m
+      memory: 256Mi
     limits:
-      cpu: 3000m
-      memory: 6Gi
+      cpu: 1000m
+      memory: 1Gi
 
   persistence:
     enabled: true
     accessMode: ReadWriteOnce
-    size: 50Gi
+    size: 5Gi
 
   nodeSelector: {}
   tolerations:
@@ -188,7 +188,7 @@ tempo:
 mimir:
   enabled: true
   # -- 2노드 환경: 2 replicas로 HA 구성
-  replicas: 2
+  replicas: 1
 
   image:
     repository: grafana/mimir
@@ -198,25 +198,25 @@ mimir:
     multitenancyEnabled: false
     logLevel: info
     # -- 2노드이므로 replicationFactor=2
-    replicationFactor: 2
-    retentionPeriod: "2160h"        # 90일 보존
-    maxGlobalSeriesPerUser: 1000000
-    maxGlobalSeriesPerMetric: 60000
-    ingestionRate: 60000
-    ingestionBurstSize: 1000000
+    replicationFactor: 1
+    retentionPeriod: "168h"         # 7일 보존
+    maxGlobalSeriesPerUser: 100000
+    maxGlobalSeriesPerMetric: 10000
+    ingestionRate: 10000
+    ingestionBurstSize: 100000
 
   resources:
     requests:
-      cpu: 1500m
-      memory: 4Gi
+      cpu: 300m
+      memory: 768Mi
     limits:
-      cpu: 6000m
-      memory: 12Gi
+      cpu: 1500m
+      memory: 2Gi
 
   persistence:
     enabled: true
     accessMode: ReadWriteOnce
-    size: 100Gi
+    size: 10Gi
 
   nodeSelector: {}
   tolerations:
@@ -242,38 +242,41 @@ otelCollector:
   # -- DaemonSet: 각 노드에 1개씩 배포되어 호스트 메트릭/로그 직접 수집
   kind: DaemonSet
   # replicas: DaemonSet에서는 무시됨 (노드 수만큼 자동 배포)
-  replicas: 2
+  replicas: 1
 
   image:
     repository: otel/opentelemetry-collector-contrib
     tag: "0.115.1"
 
-  goMemLimit: "1200MiB"
+  goMemLimit: "256MiB"
 
   resources:
     requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
       cpu: 500m
       memory: 512Mi
-    limits:
-      cpu: 2000m
-      memory: 1536Mi
 
   service:
     type: ClusterIP
+
+  hostNetwork: false
+  hostPort: false
 
   config:
     logLevel: info
     debug: false
 
     # -- 높은 처리량을 위한 배치 설정
-    batchSize: 16384
-    batchTimeout: "1s"
-    batchMaxSize: 32768
+    batchSize: 4096
+    batchTimeout: "5s"
+    batchMaxSize: 8192
 
     memoryLimitPercentage: 80
     memorySpikePercentage: 25
 
-    maxRecvMsgSizeMib: 8
+    maxRecvMsgSizeMib: 4
 
     # -- 모든 Receiver 활성화
     prometheusReceiver:
@@ -288,7 +291,7 @@ otelCollector:
             - endpoint: 10.10.20.15:9104
               labels:
                 service_name: mysql-exporter
-                env: prod
+                env: dev
                 system: onprem
                 db_name: mysql-main
 
@@ -329,8 +332,8 @@ otelCollector:
 
     exporterQueue:
       enabled: true
-      numConsumers: 10
-      queueSize: 5000
+      numConsumers: 2
+      queueSize: 1000
 
   nodeSelector: {}
   tolerations:
@@ -353,11 +356,11 @@ kubeStateMetrics:
 
   resources:
     requests:
-      cpu: 100m
-      memory: 128Mi
+      cpu: 50m
+      memory: 64Mi
     limits:
-      cpu: 500m
-      memory: 512Mi
+      cpu: 250m
+      memory: 256Mi
 
   service:
     type: ClusterIP
@@ -407,17 +410,20 @@ kubeStateMetrics:
 nodeExporter:
   enabled: true
 
+  hostNetwork: false
+  hostPort: false
+
   image:
     repository: prom/node-exporter
     tag: "v1.8.2"
 
   resources:
     requests:
-      cpu: 100m
+      cpu: 50m
       memory: 64Mi
     limits:
-      cpu: 500m
-      memory: 256Mi
+      cpu: 250m
+      memory: 128Mi
 
   service:
     type: ClusterIP

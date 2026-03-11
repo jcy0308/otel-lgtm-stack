@@ -75,6 +75,10 @@ spec:
         - name: config
           configMap:
             name: {{ include "observability.fullname" . }}-tempo-config
+        {{- if not .Values.tempo.persistence.enabled }}
+        - name: data
+          emptyDir: {}
+        {{- end }}
       {{- with .Values.tempo.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -98,8 +102,5 @@ spec:
         resources:
           requests:
             storage: {{ .Values.tempo.persistence.size | default "10Gi" }}
-  {{- else }}
-      - name: data
-        emptyDir: {}
   {{- end }}
 {{- end }}

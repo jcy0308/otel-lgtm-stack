@@ -282,6 +282,13 @@ otelCollector:
     # -- Receivers 활성화 설정
     prometheusReceiver:
       enabled: true
+      externalScrapeTargets:
+        mysql:
+          enabled: false
+          jobName: onprem-mysql
+          scrapeInterval: 30s
+          metricsPath: /metrics
+          targets: []
 
     k8sEventsReceiver:
       enabled: false
