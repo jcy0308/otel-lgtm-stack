@@ -1,0 +1,46 @@
+{{/*
+NOTES for the Observability Stack
+*/}}
+=======================================================
+  Observability Stack has been deployed!
+=======================================================
+
+Namespace: {{ include "observability.namespace" . }}
+
+Components:
+{{- if .Values.grafana.enabled }}
+  ✅ Grafana        - Dashboard & Visualization
+{{- end }}
+{{- if .Values.loki.enabled }}
+  ✅ Loki           - Log Aggregation
+{{- end }}
+{{- if .Values.tempo.enabled }}
+  ✅ Tempo          - Distributed Tracing
+{{- end }}
+{{- if .Values.mimir.enabled }}
+  ✅ Mimir          - Metrics Storage (Long-term)
+{{- end }}
+{{- if .Values.otelCollector.enabled }}
+  ✅ OTel Collector - Telemetry Pipeline
+{{- end }}
+
+{{- if .Values.grafana.enabled }}
+
+📊 Grafana Access:
+{{- if .Values.grafana.ingress.enabled }}
+  URL: http{{ if .Values.grafana.ingress.tls }}s{{ end }}://{{ .Values.grafana.ingress.host }}
+{{- else }}
+  kubectl port-forward svc/{{ include "observability.fullname" . }}-grafana 3000:3000 -n {{ include "observability.namespace" . }}
+  URL: http://localhost:3000
+{{- end }}
+  Default credentials: admin / {{ .Values.grafana.adminPassword }}
+{{- end }}
+
+{{- if .Values.otelCollector.enabled }}
+
+📡 OTel Collector Endpoints:
+  OTLP gRPC: {{ include "observability.fullname" . }}-otel-collector:4317
+  OTLP HTTP: {{ include "observability.fullname" . }}-otel-collector:4318
+{{- end }}
+
+=======================================================

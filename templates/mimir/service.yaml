@@ -1,0 +1,59 @@
+{{- if .Values.mimir.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mimir
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.mimir.service.httpPort | default 8080 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.mimir.service.grpcPort | default 9095 }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "mimir" "instance" .Release.Name) | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir-headless
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mimir
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.mimir.service.httpPort | default 8080 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.mimir.service.grpcPort | default 9095 }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: 7946
+      targetPort: memberlist
+      protocol: TCP
+      name: memberlist
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "mimir" "instance" .Release.Name) | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mimir
+{{- end }}

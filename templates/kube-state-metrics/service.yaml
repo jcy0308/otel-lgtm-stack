@@ -1,0 +1,26 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-kube-state-metrics
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kube-state-metrics
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.kubeStateMetrics.service.port | default 8080 }}"
+spec:
+  type: {{ .Values.kubeStateMetrics.service.type | default "ClusterIP" }}
+  ports:
+    - name: http-metrics
+      port: {{ .Values.kubeStateMetrics.service.port | default 8080 }}
+      targetPort: http-metrics
+      protocol: TCP
+    - name: telemetry
+      port: {{ .Values.kubeStateMetrics.service.telemetryPort | default 8081 }}
+      targetPort: telemetry
+      protocol: TCP
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "kube-state-metrics" "instance" .Release.Name) | nindent 4 }}
+{{- end }}

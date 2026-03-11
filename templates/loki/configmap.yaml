@@ -1,0 +1,70 @@
+{{- if .Values.loki.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-loki-config
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: loki
+data:
+  loki.yaml: |
+    auth_enabled: {{ .Values.loki.config.authEnabled | default false }}
+
+    server:
+      http_listen_port: {{ .Values.loki.service.httpPort | default 3100 }}
+      grpc_listen_port: {{ .Values.loki.service.grpcPort | default 9096 }}
+      log_level: {{ .Values.loki.config.logLevel | default "info" }}
+
+    common:
+      path_prefix: /loki
+      storage:
+        filesystem:
+          chunks_directory: /loki/chunks
+          rules_directory: /loki/rules
+      replication_factor: {{ .Values.loki.config.replicationFactor | default 1 }}
+      ring:
+        kvstore:
+          store: inmemory
+
+    query_range:
+      results_cache:
+        cache:
+          embedded_cache:
+            enabled: true
+            max_size_mb: {{ .Values.loki.config.cacheSize | default 100 }}
+
+    schema_config:
+      configs:
+        - from: "2024-01-01"
+          store: tsdb
+          object_store: filesystem
+          schema: v13
+          index:
+            prefix: index_
+            period: 24h
+
+    storage_config:
+      tsdb_shipper:
+        active_index_directory: /loki/tsdb-index
+        cache_location: /loki/tsdb-cache
+
+    limits_config:
+      retention_period: {{ .Values.loki.config.retentionPeriod | default "168h" }}
+      ingestion_rate_mb: {{ .Values.loki.config.ingestionRateMb | default 10 }}
+      ingestion_burst_size_mb: {{ .Values.loki.config.ingestionBurstSizeMb | default 20 }}
+      max_streams_per_user: {{ .Values.loki.config.maxStreamsPerUser | default 10000 }}
+      max_query_series: {{ .Values.loki.config.maxQuerySeries | default 500 }}
+      reject_old_samples: true
+      reject_old_samples_max_age: 168h
+
+    compactor:
+      working_directory: /loki/compactor
+      compaction_interval: 10m
+      retention_enabled: true
+      retention_delete_delay: 2h
+      retention_delete_worker_count: 150
+
+    analytics:
+      reporting_enabled: false
+{{- end }}

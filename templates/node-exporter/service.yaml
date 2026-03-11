@@ -1,0 +1,23 @@
+{{- if .Values.nodeExporter.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-node-exporter
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-exporter
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "{{ .Values.nodeExporter.service.port | default 9100 }}"
+spec:
+  type: {{ .Values.nodeExporter.service.type | default "ClusterIP" }}
+  clusterIP: None
+  ports:
+    - name: metrics
+      port: {{ .Values.nodeExporter.service.port | default 9100 }}
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "node-exporter" "instance" .Release.Name) | nindent 4 }}
+{{- end }}

@@ -1,0 +1,88 @@
+{{- if .Values.kubeStateMetrics.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "observability.fullname" . }}-kube-state-metrics
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: kube-state-metrics
+spec:
+  replicas: {{ .Values.kubeStateMetrics.replicas | default 1 }}
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "kube-state-metrics" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "kube-state-metrics" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: kube-state-metrics
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "observability.fullname" . }}-kube-state-metrics
+      automountServiceAccountToken: true
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: kube-state-metrics
+          image: "{{ .Values.kubeStateMetrics.image.repository }}:{{ .Values.kubeStateMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.kubeStateMetrics.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - --port={{ .Values.kubeStateMetrics.service.port | default 8080 }}
+            - --telemetry-port={{ .Values.kubeStateMetrics.service.telemetryPort | default 8081 }}
+            {{- if .Values.kubeStateMetrics.collectors }}
+            - --resources={{ join "," .Values.kubeStateMetrics.collectors }}
+            {{- end }}
+            {{- if .Values.kubeStateMetrics.metricLabelsAllowlist }}
+            {{- range $resource, $labels := .Values.kubeStateMetrics.metricLabelsAllowlist }}
+            - --metric-labels-allowlist={{ $resource }}=[{{ join "," $labels }}]
+            {{- end }}
+            {{- end }}
+          ports:
+            - name: http-metrics
+              containerPort: {{ .Values.kubeStateMetrics.service.port | default 8080 }}
+              protocol: TCP
+            - name: telemetry
+              containerPort: {{ .Values.kubeStateMetrics.service.telemetryPort | default 8081 }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /livez
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http-metrics
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.kubeStateMetrics.resources | nindent 12 }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+      {{- with .Values.kubeStateMetrics.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kubeStateMetrics.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.kubeStateMetrics.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

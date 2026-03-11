@@ -1,0 +1,71 @@
+{{- if .Values.tempo.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-tempo-config
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+data:
+  tempo.yaml: |
+    server:
+      http_listen_port: {{ .Values.tempo.service.httpPort | default 3200 }}
+      grpc_listen_port: {{ .Values.tempo.service.grpcPort | default 9095 }}
+      log_level: {{ .Values.tempo.config.logLevel | default "info" }}
+
+    distributor:
+      receivers:
+        otlp:
+          protocols:
+            grpc:
+              endpoint: "0.0.0.0:4317"
+            http:
+              endpoint: "0.0.0.0:4318"
+
+    ingester:
+      max_block_duration: {{ .Values.tempo.config.maxBlockDuration | default "5m" }}
+      max_block_bytes: {{ .Values.tempo.config.maxBlockBytes | default 1073741824 }}
+
+    compactor:
+      compaction:
+        block_retention: {{ .Values.tempo.config.retentionPeriod | default "168h" }}
+
+    metrics_generator:
+      registry:
+        external_labels:
+          source: tempo
+          cluster: {{ .Values.global.clusterName | default "on-prem" }}
+      storage:
+        path: /var/tempo/generator/wal
+        remote_write:
+        {{- if .Values.mimir.enabled }}
+          - url: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort }}/api/v1/push
+            send_exemplars: true
+        {{- end }}
+      traces_storage:
+        path: /var/tempo/generator/traces
+
+    storage:
+      trace:
+        backend: local
+        wal:
+          path: /var/tempo/wal
+        local:
+          path: /var/tempo/blocks
+        block:
+          bloom_filter_false_positive: 0.05
+          v2_index_downsample_bytes: 1000
+          v2_encoding: zstd
+
+    overrides:
+      defaults:
+        metrics_generator:
+          processors:
+            - service-graphs
+            - span-metrics
+          generate_native_histograms: both
+
+    usage_report:
+      reporting_enabled: false
+{{- end }}

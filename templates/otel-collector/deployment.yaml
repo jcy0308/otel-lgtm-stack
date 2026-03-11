@@ -1,0 +1,147 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: apps/v1
+kind: {{ .Values.otelCollector.kind | default "Deployment" }}
+metadata:
+  name: {{ include "observability.fullname" . }}-otel-collector
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+spec:
+  {{- if eq (default "Deployment" .Values.otelCollector.kind) "Deployment" }}
+  replicas: {{ .Values.otelCollector.replicas | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "otel-collector" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "otel-collector" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: otel-collector
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/otel-collector/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "observability.fullname" . }}-otel-collector
+      {{- if eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet" }}
+      hostNetwork: {{ .Values.otelCollector.hostNetwork | default false }}
+      dnsPolicy: {{ if .Values.otelCollector.hostNetwork }}ClusterFirstWithHostNet{{ else }}ClusterFirst{{ end }}
+      {{- end }}
+      containers:
+        - name: otel-collector
+          image: "{{ .Values.otelCollector.image.repository }}:{{ .Values.otelCollector.image.tag }}"
+          imagePullPolicy: {{ .Values.otelCollector.image.pullPolicy | default "IfNotPresent" }}
+          command:
+            - "/otelcol-contrib"
+            - "--config=/etc/otelcol/otel-collector.yaml"
+          ports:
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+              {{- if eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet" }}
+              hostPort: 4317
+              {{- end }}
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+              {{- if eq (default "Deployment" .Values.otelCollector.kind) "DaemonSet" }}
+              hostPort: 4318
+              {{- end }}
+            - name: healthcheck
+              containerPort: 13133
+              protocol: TCP
+            - name: zpages
+              containerPort: 55679
+              protocol: TCP
+            - name: metrics
+              containerPort: 8888
+              protocol: TCP
+          env:
+            - name: K8S_NODE_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: K8S_POD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: K8S_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: K8S_POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: GOMEMLIMIT
+              value: {{ .Values.otelCollector.goMemLimit | default "400MiB" }}
+          {{- if .Values.otelCollector.env }}
+            {{- toYaml .Values.otelCollector.env | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: /
+              port: healthcheck
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /
+              port: healthcheck
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.otelCollector.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/otelcol
+            {{- if .Values.otelCollector.config.hostMetricsReceiver.enabled }}
+            - name: hostfs
+              mountPath: /hostfs
+              readOnly: true
+              mountPropagation: HostToContainer
+            {{- end }}
+            {{- if and .Values.otelCollector.config.filelogReceiver .Values.otelCollector.config.filelogReceiver.enabled }}
+            - name: varlogpods
+              mountPath: /var/log/pods
+              readOnly: true
+            - name: varlibdockercontainers
+              mountPath: /var/lib/docker/containers
+              readOnly: true
+            {{- end }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}-otel-collector-config
+        {{- if .Values.otelCollector.config.hostMetricsReceiver.enabled }}
+        - name: hostfs
+          hostPath:
+            path: /
+        {{- end }}
+        {{- if and .Values.otelCollector.config.filelogReceiver .Values.otelCollector.config.filelogReceiver.enabled }}
+        - name: varlogpods
+          hostPath:
+            path: /var/log/pods
+        - name: varlibdockercontainers
+          hostPath:
+            path: /var/lib/docker/containers
+        {{- end }}
+      {{- with .Values.otelCollector.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.otelCollector.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.otelCollector.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+{{- end }}

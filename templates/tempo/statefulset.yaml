@@ -1,0 +1,105 @@
+{{- if .Values.tempo.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "observability.fullname" . }}-tempo
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+spec:
+  replicas: {{ .Values.tempo.replicas | default 1 }}
+  serviceName: {{ include "observability.fullname" . }}-tempo-headless
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "tempo" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "tempo" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: tempo
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/tempo/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "observability.fullname" . }}-tempo
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: tempo
+          image: "{{ .Values.tempo.image.repository }}:{{ .Values.tempo.image.tag }}"
+          imagePullPolicy: {{ .Values.tempo.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - -config.file=/etc/tempo/tempo.yaml
+            - -target=all
+          ports:
+            - name: http
+              containerPort: {{ .Values.tempo.service.httpPort | default 3200 }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.tempo.service.grpcPort | default 9095 }}
+              protocol: TCP
+            - name: otlp-grpc
+              containerPort: 4317
+              protocol: TCP
+            - name: otlp-http
+              containerPort: 4318
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.tempo.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/tempo
+            - name: data
+              mountPath: /var/tempo
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}-tempo-config
+      {{- with .Values.tempo.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tempo.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tempo.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.tempo.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.tempo.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- include "observability.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.tempo.persistence.size | default "10Gi" }}
+  {{- else }}
+      - name: data
+        emptyDir: {}
+  {{- end }}
+{{- end }}

@@ -1,0 +1,79 @@
+{{- if .Values.grafana.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana-config
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+data:
+  grafana.ini: |
+    [server]
+    root_url = {{ .Values.grafana.rootUrl | default "http://localhost:3000" }}
+
+    [security]
+    admin_user = {{ .Values.grafana.adminUser | default "admin" }}
+    admin_password = {{ .Values.grafana.adminPassword | default "admin" }}
+
+    [auth.anonymous]
+    enabled = {{ .Values.grafana.anonymousAuth | default false }}
+
+    [analytics]
+    reporting_enabled = false
+    check_for_updates = false
+
+    [log]
+    mode = console
+    level = {{ .Values.grafana.logLevel | default "info" }}
+
+    [unified_alerting]
+    enabled = true
+
+  datasources.yaml: |
+    apiVersion: 1
+    datasources:
+    {{- if .Values.mimir.enabled }}
+    - name: Mimir
+      type: prometheus
+      access: proxy
+      url: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort }}{{ .Values.mimir.service.prometheusPath | default "/prometheus" }}
+      isDefault: true
+      editable: true
+      jsonData:
+        timeInterval: "15s"
+        httpHeaderName1: "X-Scope-OrgID"
+      secureJsonData:
+        httpHeaderValue1: "anonymous"
+    {{- end }}
+    {{- if .Values.loki.enabled }}
+    - name: Loki
+      type: loki
+      access: proxy
+      url: http://{{ include "observability.fullname" . }}-loki:{{ .Values.loki.service.httpPort }}
+      editable: true
+      jsonData:
+        maxLines: 1000
+    {{- end }}
+    {{- if .Values.tempo.enabled }}
+    - name: Tempo
+      type: tempo
+      access: proxy
+      url: http://{{ include "observability.fullname" . }}-tempo:{{ .Values.tempo.service.httpPort }}
+      editable: true
+      jsonData:
+        httpMethod: GET
+        tracesToLogsV2:
+          datasourceUid: {{ if .Values.loki.enabled }}"loki"{{ else }}""{{ end }}
+          spanStartTimeShift: "-1h"
+          spanEndTimeShift: "1h"
+          filterByTraceID: true
+          filterBySpanID: false
+        tracesToMetrics:
+          datasourceUid: {{ if .Values.mimir.enabled }}"mimir"{{ else }}""{{ end }}
+        serviceMap:
+          datasourceUid: {{ if .Values.mimir.enabled }}"mimir"{{ else }}""{{ end }}
+        nodeGraph:
+          enabled: true
+    {{- end }}
+{{- end }}

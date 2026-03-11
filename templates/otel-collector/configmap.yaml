@@ -1,0 +1,363 @@
+{{- if .Values.otelCollector.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "observability.fullname" . }}-otel-collector-config
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: otel-collector
+data:
+  otel-collector.yaml: |
+    # ============================================================
+    # Receivers - 텔레메트리 데이터 수집 엔드포인트
+    # ============================================================
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:4317"
+            max_recv_msg_size_mib: {{ .Values.otelCollector.config.maxRecvMsgSizeMib | default 4 }}
+          http:
+            endpoint: "0.0.0.0:4318"
+            cors:
+              allowed_origins:
+                - "*"
+
+      # Kubernetes 인프라 메트릭 수집
+      {{- if .Values.otelCollector.config.prometheusReceiver.enabled }}
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'kubernetes-pods'
+              kubernetes_sd_configs:
+                - role: pod
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+                  action: keep
+                  regex: true
+                - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+                  action: replace
+                  target_label: __metrics_path__
+                  regex: (.+)
+                - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+                  action: replace
+                  regex: ([^:]+)(?::\d+)?;(\d+)
+                  replacement: $$1:$$2
+                  target_label: __address__
+                - source_labels: [__meta_kubernetes_namespace]
+                  action: replace
+                  target_label: namespace
+                - source_labels: [__meta_kubernetes_pod_name]
+                  action: replace
+                  target_label: pod
+            {{- if .Values.kubeStateMetrics.enabled }}
+            - job_name: 'kube-state-metrics'
+              scrape_interval: 30s
+              static_configs:
+                - targets:
+                    - {{ include "observability.fullname" . }}-kube-state-metrics.{{ include "observability.namespace" . }}.svc.cluster.local:{{ .Values.kubeStateMetrics.service.port | default 8080 }}
+            {{- end }}
+            {{- if .Values.nodeExporter.enabled }}
+            - job_name: 'node-exporter'
+              scrape_interval: 30s
+              kubernetes_sd_configs:
+                - role: endpoints
+                  namespaces:
+                    names:
+                      - {{ include "observability.namespace" . }}
+              relabel_configs:
+                - source_labels: [__meta_kubernetes_endpoints_name]
+                  regex: {{ include "observability.fullname" . }}-node-exporter
+                  action: keep
+                - source_labels: [__meta_kubernetes_endpoint_node_name]
+                  target_label: node
+            {{- end }}
+      {{- end }}
+
+      {{- if .Values.otelCollector.config.k8sEventsReceiver.enabled }}
+      k8s_events:
+        namespaces: []
+      {{- end }}
+
+      {{- if .Values.otelCollector.config.hostMetricsReceiver.enabled }}
+      hostmetrics:
+        collection_interval: 30s
+        scrapers:
+          cpu: {}
+          memory: {}
+          disk: {}
+          filesystem: {}
+          load: {}
+          network: {}
+      {{- end }}
+
+      {{- if .Values.otelCollector.config.kubeletStatsReceiver.enabled }}
+      kubeletstats:
+        collection_interval: 30s
+        auth_type: serviceAccount
+        endpoint: "https://${K8S_NODE_NAME}:10250"
+        insecure_skip_verify: true
+        metric_groups:
+          - node
+          - pod
+          - container
+      {{- end }}
+
+      {{- if and .Values.otelCollector.config.filelogReceiver .Values.otelCollector.config.filelogReceiver.enabled }}
+      filelog:
+        include_file_path: {{ .Values.otelCollector.config.filelogReceiver.includeFilePath | default true }}
+        include:
+          {{- range .Values.otelCollector.config.filelogReceiver.includePaths }}
+          - {{ . }}
+          {{- end }}
+        {{- if .Values.otelCollector.config.filelogReceiver.excludePaths }}
+        exclude:
+          {{- range .Values.otelCollector.config.filelogReceiver.excludePaths }}
+          - {{ . }}
+          {{- end }}
+        {{- end }}
+        start_at: end
+        retry_on_failure:
+          enabled: true
+        {{- if .Values.otelCollector.config.filelogReceiver.operators }}
+        operators:
+          {{- range .Values.otelCollector.config.filelogReceiver.operators }}
+          - type: {{ .type }}
+            id: {{ .id }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+
+    # ============================================================
+    # Processors - 데이터 가공 및 변환
+    # ============================================================
+    processors:
+      batch:
+        send_batch_size: {{ .Values.otelCollector.config.batchSize | default 8192 }}
+        timeout: {{ .Values.otelCollector.config.batchTimeout | default "2s" }}
+        send_batch_max_size: {{ .Values.otelCollector.config.batchMaxSize | default 16384 }}
+
+      memory_limiter:
+        check_interval: 5s
+        limit_percentage: {{ .Values.otelCollector.config.memoryLimitPercentage | default 80 }}
+        spike_limit_percentage: {{ .Values.otelCollector.config.memorySpikePercentage | default 25 }}
+
+      resource:
+        attributes:
+          - key: cluster.name
+            value: {{ .Values.global.clusterName | default "on-prem" }}
+            action: upsert
+          - key: deployment.environment
+            value: {{ .Values.global.environment | default "production" }}
+            action: upsert
+
+      {{- if .Values.otelCollector.config.k8sAttributesProcessor.enabled }}
+      k8sattributes:
+        auth_type: serviceAccount
+        passthrough: false
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.job.name
+            - k8s.cronjob.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.node.name
+            - k8s.container.name
+          labels:
+            - tag_name: app
+              key: app
+              from: pod
+            - tag_name: app.kubernetes.io/name
+              key: app.kubernetes.io/name
+              from: pod
+        pod_association:
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.ip
+          - sources:
+              - from: resource_attribute
+                name: k8s.pod.uid
+          - sources:
+              - from: connection
+      {{- end }}
+
+      {{- if .Values.otelCollector.config.filterProcessor.enabled }}
+      filter:
+        error_mode: ignore
+        metrics:
+          metric:
+            {{- toYaml .Values.otelCollector.config.filterProcessor.metricFilters | nindent 12 }}
+      {{- end }}
+
+    # ============================================================
+    # Exporters - 데이터 전송 대상
+    # ============================================================
+    exporters:
+      {{- if .Values.otelCollector.config.debug }}
+      debug:
+        verbosity: detailed
+      {{- end }}
+
+      # Mimir로 메트릭 전송 (Prometheus Remote Write)
+      {{- if .Values.mimir.enabled }}
+      prometheusremotewrite:
+        endpoint: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort }}/api/v1/push
+        tls:
+          insecure: true
+        resource_to_telemetry_conversion:
+          enabled: true
+        {{- if .Values.otelCollector.config.exporterRetry.enabled }}
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        {{- end }}
+        {{- if .Values.otelCollector.config.exporterQueue.enabled }}
+        sending_queue:
+          enabled: true
+          num_consumers: {{ .Values.otelCollector.config.exporterQueue.numConsumers | default 10 }}
+          queue_size: {{ .Values.otelCollector.config.exporterQueue.queueSize | default 5000 }}
+        {{- end }}
+      {{- end }}
+
+      # Loki로 로그 전송
+      {{- if .Values.loki.enabled }}
+      otlphttp/loki:
+        endpoint: http://{{ include "observability.fullname" . }}-loki:{{ .Values.loki.service.httpPort }}/otlp
+        tls:
+          insecure: true
+        {{- if .Values.otelCollector.config.exporterRetry.enabled }}
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        {{- end }}
+      {{- end }}
+
+      # Tempo로 트레이스 전송
+      {{- if .Values.tempo.enabled }}
+      otlp/tempo:
+        endpoint: {{ include "observability.fullname" . }}-tempo:{{ .Values.tempo.service.grpcPort }}
+        tls:
+          insecure: true
+        {{- if .Values.otelCollector.config.exporterRetry.enabled }}
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        {{- end }}
+        {{- if .Values.otelCollector.config.exporterQueue.enabled }}
+        sending_queue:
+          enabled: true
+          num_consumers: {{ .Values.otelCollector.config.exporterQueue.numConsumers | default 10 }}
+          queue_size: {{ .Values.otelCollector.config.exporterQueue.queueSize | default 5000 }}
+        {{- end }}
+      {{- end }}
+
+    # ============================================================
+    # Extensions
+    # ============================================================
+    extensions:
+      health_check:
+        endpoint: "0.0.0.0:13133"
+      zpages:
+        endpoint: "0.0.0.0:55679"
+
+    # ============================================================
+    # Service - 파이프라인 정의
+    # ============================================================
+    service:
+      extensions:
+        - health_check
+        - zpages
+
+      telemetry:
+        logs:
+          level: {{ .Values.otelCollector.config.logLevel | default "info" }}
+        metrics:
+          address: "0.0.0.0:8888"
+
+      pipelines:
+        # 메트릭 파이프라인
+        metrics:
+          receivers:
+            - otlp
+            {{- if .Values.otelCollector.config.prometheusReceiver.enabled }}
+            - prometheus
+            {{- end }}
+            {{- if .Values.otelCollector.config.hostMetricsReceiver.enabled }}
+            - hostmetrics
+            {{- end }}
+            {{- if .Values.otelCollector.config.kubeletStatsReceiver.enabled }}
+            - kubeletstats
+            {{- end }}
+          processors:
+            - memory_limiter
+            - resource
+            {{- if .Values.otelCollector.config.k8sAttributesProcessor.enabled }}
+            - k8sattributes
+            {{- end }}
+            {{- if .Values.otelCollector.config.filterProcessor.enabled }}
+            - filter
+            {{- end }}
+            - batch
+          exporters:
+            {{- if .Values.mimir.enabled }}
+            - prometheusremotewrite
+            {{- end }}
+            {{- if .Values.otelCollector.config.debug }}
+            - debug
+            {{- end }}
+
+        # 로그 파이프라인
+        logs:
+          receivers:
+            - otlp
+            {{- if .Values.otelCollector.config.k8sEventsReceiver.enabled }}
+            - k8s_events
+            {{- end }}
+            {{- if and .Values.otelCollector.config.filelogReceiver .Values.otelCollector.config.filelogReceiver.enabled }}
+            - filelog
+            {{- end }}
+          processors:
+            - memory_limiter
+            - resource
+            {{- if .Values.otelCollector.config.k8sAttributesProcessor.enabled }}
+            - k8sattributes
+            {{- end }}
+            - batch
+          exporters:
+            {{- if .Values.loki.enabled }}
+            - otlphttp/loki
+            {{- end }}
+            {{- if .Values.otelCollector.config.debug }}
+            - debug
+            {{- end }}
+
+        # 트레이스 파이프라인
+        traces:
+          receivers:
+            - otlp
+          processors:
+            - memory_limiter
+            - resource
+            {{- if .Values.otelCollector.config.k8sAttributesProcessor.enabled }}
+            - k8sattributes
+            {{- end }}
+            - batch
+          exporters:
+            {{- if .Values.tempo.enabled }}
+            - otlp/tempo
+            {{- end }}
+            {{- if .Values.otelCollector.config.debug }}
+            - debug
+            {{- end }}
+{{- end }}

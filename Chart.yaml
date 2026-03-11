@@ -1,0 +1,26 @@
+apiVersion: v2
+name: observability-stack
+description: |
+  On-premise Kubernetes Observability Stack using OpenTelemetry and LGTM
+  (Loki, Grafana, Tempo, Mimir) for comprehensive monitoring, logging, and tracing.
+type: application
+version: 1.0.0
+appVersion: "1.0.0"
+keywords:
+  - observability
+  - monitoring
+  - logging
+  - tracing
+  - metrics
+  - opentelemetry
+  - grafana
+  - loki
+  - tempo
+  - mimir
+  - lgtm
+maintainers:
+  - name: Platform Team
+    email: platform@example.com
+home: https://github.com/example/observability-stack
+sources:
+  - https://github.com/example/observability-stack

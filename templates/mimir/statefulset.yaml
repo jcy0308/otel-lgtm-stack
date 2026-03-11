@@ -1,0 +1,103 @@
+{{- if .Values.mimir.enabled }}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "observability.fullname" . }}-mimir
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mimir
+spec:
+  replicas: {{ .Values.mimir.replicas | default 1 }}
+  serviceName: {{ include "observability.fullname" . }}-mimir-headless
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "mimir" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "mimir" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: mimir
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/mimir/configmap.yaml") . | sha256sum }}
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ include "observability.fullname" . }}-mimir
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: mimir
+          image: "{{ .Values.mimir.image.repository }}:{{ .Values.mimir.image.tag }}"
+          imagePullPolicy: {{ .Values.mimir.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - -config.file=/etc/mimir/mimir.yaml
+            - -target=all
+          ports:
+            - name: http
+              containerPort: {{ .Values.mimir.service.httpPort | default 8080 }}
+              protocol: TCP
+            - name: grpc
+              containerPort: {{ .Values.mimir.service.grpcPort | default 9095 }}
+              protocol: TCP
+            - name: memberlist
+              containerPort: 7946
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 45
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.mimir.resources | nindent 12 }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/mimir
+            - name: data
+              mountPath: /data/mimir
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "observability.fullname" . }}-mimir-config
+      {{- with .Values.mimir.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mimir.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.mimir.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.mimir.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.mimir.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- include "observability.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.mimir.persistence.size | default "20Gi" }}
+  {{- else }}
+      - name: data
+        emptyDir: {}
+  {{- end }}
+{{- end }}

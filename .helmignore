@@ -1,0 +1,18 @@
+# Patterns to ignore when building packages.
+.git
+.gitignore
+.helmignore
+.vscode
+*.swp
+*.bak
+*.tmp
+*.orig
+*~
+.project
+.idea
+*.tmproj
+.hg
+README.md
+docs/
+ci/
+tests/

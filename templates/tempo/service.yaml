@@ -1,0 +1,63 @@
+{{- if .Values.tempo.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-tempo
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.tempo.service.httpPort | default 3200 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.tempo.service.grpcPort | default 9095 }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+    - port: 4317
+      targetPort: otlp-grpc
+      protocol: TCP
+      name: otlp-grpc
+    - port: 4318
+      targetPort: otlp-http
+      protocol: TCP
+      name: otlp-http
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "tempo" "instance" .Release.Name) | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-tempo-headless
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+spec:
+  type: ClusterIP
+  clusterIP: None
+  ports:
+    - port: {{ .Values.tempo.service.httpPort | default 3200 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.tempo.service.grpcPort | default 9095 }}
+      targetPort: grpc
+      protocol: TCP
+      name: grpc
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "tempo" "instance" .Release.Name) | nindent 4 }}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "observability.fullname" . }}-tempo
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: tempo
+{{- end }}

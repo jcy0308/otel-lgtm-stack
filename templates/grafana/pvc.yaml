@@ -1,0 +1,17 @@
+{{- if and .Values.grafana.enabled .Values.grafana.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "observability.fullname" . }}-grafana
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: grafana
+spec:
+  accessModes:
+    - {{ .Values.grafana.persistence.accessMode | default "ReadWriteOnce" }}
+  {{- include "observability.storageClass" . | nindent 2 }}
+  resources:
+    requests:
+      storage: {{ .Values.grafana.persistence.size | default "5Gi" }}
+{{- end }}

@@ -1,0 +1,466 @@
+# =============================================================================
+# Observability Stack - Production Values (프로덕션 환경)
+# =============================================================================
+# 온프렘 2노드 클러스터에 최적화된 프로덕션 설정입니다.
+#
+# 클러스터 구성:
+#   - 컨트롤 노드 1대 (워커 겸용) + 워커 노드 1대
+#   - 각 노드: Intel Xeon E5-2620 v4 32코어, 128GB RAM
+#   - 총 가용: 64코어, 256GB RAM (시스템/K8s 오버헤드 제외 시 약 56코어, 220GB)
+#
+# 리소스 배분 전략:
+#   - Observability 스택 총 requests: ~12 CPU, ~24GB RAM (노드당 ~6 CPU, ~12GB)
+#   - 나머지 리소스는 워크로드 및 시스템 컴포넌트용으로 확보
+#   - 2노드 제약으로 replicas=2, replicationFactor=2 적용
+#   - preferred anti-affinity로 가능하면 분산, 불가능 시에도 스케줄링 보장
+#
+# 사용법:
+#   helm install observability . -f values-prod.yaml
+# =============================================================================
+
+global:
+  clusterName: "prod-cluster"
+  environment: "production"
+  # -- 온프렘 스토리지 클래스 (환경에 맞게 변경)
+  storageClass: "local-path"
+  imagePullSecrets: []
+
+namespace:
+  create: true
+
+# =============================================================================
+# Grafana - 프로덕션
+# =============================================================================
+grafana:
+  enabled: true
+  # -- 2노드 환경: Grafana는 stateless에 가까우므로 1 replica로 충분
+  replicas: 1
+
+  image:
+    repository: grafana/grafana
+    tag: "11.4.0"
+
+  adminUser: admin
+  # -- 프로덕션에서는 반드시 안전한 비밀번호를 사용하세요
+  adminPassword: "CHANGE_ME_STRONG_PASSWORD"
+  anonymousAuth: false
+  rootUrl: "https://grafana.example.com"
+  logLevel: info
+
+  resources:
+    requests:
+      cpu: 250m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  service:
+    type: ClusterIP
+    port: 3000
+
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    host: grafana.example.com
+    tls: true
+    tlsSecret: grafana-tls
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "50m"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
+
+  # -- 컨트롤 노드도 워커로 사용하므로 nodeSelector 제거, control-plane toleration 추가
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity: {}
+
+# =============================================================================
+# Loki - 프로덕션
+# =============================================================================
+loki:
+  enabled: true
+  # -- 2노드 환경: 2 replicas로 HA 구성
+  replicas: 2
+
+  image:
+    repository: grafana/loki
+    tag: "3.3.2"
+
+  config:
+    authEnabled: false
+    logLevel: info
+    # -- 2노드이므로 replicationFactor=2 (데이터 유실 방지)
+    replicationFactor: 2
+    retentionPeriod: "720h"         # 30일 보존
+    cacheSize: 300
+    ingestionRateMb: 30
+    ingestionBurstSizeMb: 60
+    maxStreamsPerUser: 30000
+    maxQuerySeries: 1500
+
+  resources:
+    requests:
+      cpu: 1000m
+      memory: 2Gi
+    limits:
+      cpu: 4000m
+      memory: 6Gi
+
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 50Gi
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity:
+    podAntiAffinity:
+      # -- preferred: 2노드에서 최대한 분산하되, 스케줄링 실패 방지
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: loki
+            topologyKey: kubernetes.io/hostname
+
+# =============================================================================
+# Tempo - 프로덕션
+# =============================================================================
+tempo:
+  enabled: true
+  # -- 2노드 환경: 2 replicas로 분산
+  replicas: 2
+
+  image:
+    repository: grafana/tempo
+    tag: "2.6.1"
+
+  config:
+    logLevel: info
+    retentionPeriod: "336h"         # 14일 보존
+    maxBlockDuration: "5m"
+    maxBlockBytes: 1073741824       # 1GB
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      cpu: 3000m
+      memory: 6Gi
+
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 50Gi
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: tempo
+            topologyKey: kubernetes.io/hostname
+
+# =============================================================================
+# Mimir - 프로덕션
+# =============================================================================
+mimir:
+  enabled: true
+  # -- 2노드 환경: 2 replicas로 HA 구성
+  replicas: 2
+
+  image:
+    repository: grafana/mimir
+    tag: "2.14.2"
+
+  config:
+    multitenancyEnabled: false
+    logLevel: info
+    # -- 2노드이므로 replicationFactor=2
+    replicationFactor: 2
+    retentionPeriod: "2160h"        # 90일 보존
+    maxGlobalSeriesPerUser: 1000000
+    maxGlobalSeriesPerMetric: 60000
+    ingestionRate: 60000
+    ingestionBurstSize: 1000000
+
+  resources:
+    requests:
+      cpu: 1500m
+      memory: 4Gi
+    limits:
+      cpu: 6000m
+      memory: 12Gi
+
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 100Gi
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: mimir
+            topologyKey: kubernetes.io/hostname
+
+# =============================================================================
+# OpenTelemetry Collector - 프로덕션
+# =============================================================================
+otelCollector:
+  enabled: true
+
+  # -- DaemonSet: 각 노드에 1개씩 배포되어 호스트 메트릭/로그 직접 수집
+  kind: DaemonSet
+  # replicas: DaemonSet에서는 무시됨 (노드 수만큼 자동 배포)
+  replicas: 2
+
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.115.1"
+
+  goMemLimit: "1200MiB"
+
+  resources:
+    requests:
+      cpu: 500m
+      memory: 512Mi
+    limits:
+      cpu: 2000m
+      memory: 1536Mi
+
+  service:
+    type: ClusterIP
+
+  config:
+    logLevel: info
+    debug: false
+
+    # -- 높은 처리량을 위한 배치 설정
+    batchSize: 16384
+    batchTimeout: "1s"
+    batchMaxSize: 32768
+
+    memoryLimitPercentage: 80
+    memorySpikePercentage: 25
+
+    maxRecvMsgSizeMib: 8
+
+    # -- 모든 Receiver 활성화
+    prometheusReceiver:
+      enabled: true
+
+    k8sEventsReceiver:
+      enabled: true
+
+    hostMetricsReceiver:
+      enabled: true      # DaemonSet이므로 각 노드에서 호스트 메트릭 직접 수집
+
+    kubeletStatsReceiver:
+      enabled: true
+
+    # -- Filelog Receiver: DaemonSet에서 각 노드의 Pod 로그 수집
+    filelogReceiver:
+      enabled: true
+      includeFilePath: true
+      includePaths:
+        - /var/log/pods/*/*/*.log
+      excludePaths:
+        - /var/log/pods/*/otel-collector/*.log
+      operators:
+        - type: container
+          id: container-parser
+
+    # -- 모든 Processor 활성화
+    k8sAttributesProcessor:
+      enabled: true
+
+    filterProcessor:
+      enabled: true
+      metricFilters:
+        # 불필요한 메트릭 필터링 (예시)
+        - 'name == "k8s.container.cpu_limit" or name == "k8s.container.memory_limit"'
+
+    # -- 재시도 및 큐 설정 (데이터 손실 방지)
+    exporterRetry:
+      enabled: true
+
+    exporterQueue:
+      enabled: true
+      numConsumers: 10
+      queueSize: 5000
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  # -- DaemonSet은 모든 노드에 자동 배포되므로 anti-affinity 불필요
+  affinity: {}
+
+# =============================================================================
+# Kube State Metrics - 프로덕션
+# =============================================================================
+kubeStateMetrics:
+  enabled: true
+  replicas: 1
+
+  image:
+    repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+    tag: "v2.13.0"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  service:
+    type: ClusterIP
+    port: 8080
+    telemetryPort: 8081
+
+  # -- 수집할 리소스 종류
+  collectors:
+    - pods
+    - deployments
+    - statefulsets
+    - daemonsets
+    - replicasets
+    - nodes
+    - namespaces
+    - jobs
+    - cronjobs
+    - services
+    - endpoints
+    - persistentvolumeclaims
+    - persistentvolumes
+    - configmaps
+    - secrets
+    - resourcequotas
+    - horizontalpodautoscalers
+    - ingresses
+
+  metricLabelsAllowlist:
+    pods:
+      - app.kubernetes.io/name
+      - app.kubernetes.io/instance
+      - app.kubernetes.io/component
+    deployments:
+      - app.kubernetes.io/name
+      - app.kubernetes.io/instance
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity: {}
+
+# =============================================================================
+# Node Exporter - 프로덕션 (DaemonSet)
+# =============================================================================
+nodeExporter:
+  enabled: true
+
+  image:
+    repository: prom/node-exporter
+    tag: "v1.8.2"
+
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      cpu: 500m
+      memory: 256Mi
+
+  service:
+    type: ClusterIP
+    port: 9100
+
+  enabledCollectors:
+    - cpu
+    - diskstats
+    - filesystem
+    - loadavg
+    - meminfo
+    - netdev
+    - netstat
+    - os
+    - stat
+    - time
+    - uname
+    - vmstat
+    - hwmon
+    - thermal_zone
+    - pressure
+
+  disabledCollectors:
+    - arp
+    - bcache
+    - bonding
+    - btrfs
+    - conntrack
+    - edac
+    - entropy
+    - fibrechannel
+    - infiniband
+    - ipvs
+    - mdadm
+    - nfs
+    - nfsd
+    - nvme
+    - powersupplyclass
+    - rapl
+    - schedstat
+    - sockstat
+    - softnet
+    - tapestats
+    - textfile
+    - wifi
+    - xfs
+    - zfs
+
+  hostPaths:
+    proc: /proc
+    sys: /sys
+    rootfs: /
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity: {}

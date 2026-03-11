@@ -1,0 +1,10 @@
+{{- if .Values.nodeExporter.enabled }}
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "observability.fullname" . }}-node-exporter
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: node-exporter
+{{- end }}

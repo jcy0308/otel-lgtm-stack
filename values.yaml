@@ -1,0 +1,468 @@
+# =============================================================================
+# Observability Stack - Default Values
+# =============================================================================
+# 이 파일은 기본 값을 정의합니다.
+# 환경별 values 파일 (values-minimal.yaml, values-prod.yaml)로 오버라이드하세요.
+# =============================================================================
+
+# -- 글로벌 설정
+global:
+  # -- 클러스터 이름 (메트릭/트레이스에 라벨로 추가)
+  clusterName: "on-prem"
+  # -- 환경 이름
+  environment: "production"
+  # -- 네임스페이스 (기본: Release namespace)
+  namespace: ""
+  # -- 스토리지 클래스 (온프렘 환경에 맞게 설정)
+  storageClass: ""
+  # -- 이미지 풀 시크릿
+  imagePullSecrets: []
+
+# -- 이름 오버라이드
+nameOverride: ""
+fullnameOverride: ""
+
+# -- 네임스페이스 자동 생성 여부
+namespace:
+  create: false
+
+# =============================================================================
+# Grafana - 대시보드 및 시각화
+# =============================================================================
+grafana:
+  enabled: true
+  replicas: 1
+
+  image:
+    repository: grafana/grafana
+    tag: "11.4.0"
+    pullPolicy: IfNotPresent
+
+  # -- 관리자 계정 설정
+  adminUser: admin
+  adminPassword: admin
+  anonymousAuth: false
+  rootUrl: "http://localhost:3000"
+  logLevel: info
+
+  # -- 추가 환경변수
+  env: []
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 500m
+      memory: 512Mi
+
+  # -- 퍼시스턴스 설정
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 5Gi
+
+  # -- 서비스 설정
+  service:
+    type: ClusterIP
+    port: 3000
+    nodePort: ""
+
+  # -- 인그레스 설정
+  ingress:
+    enabled: false
+    ingressClassName: nginx
+    host: grafana.local
+    tls: false
+    tlsSecret: ""
+    annotations: {}
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Loki - 로그 수집 및 저장
+# =============================================================================
+loki:
+  enabled: true
+  replicas: 1
+
+  image:
+    repository: grafana/loki
+    tag: "3.3.2"
+    pullPolicy: IfNotPresent
+
+  # -- Loki 설정
+  config:
+    authEnabled: false
+    logLevel: info
+    replicationFactor: 1
+    retentionPeriod: "168h"      # 7일
+    cacheSize: 100                # MB
+    ingestionRateMb: 10
+    ingestionBurstSizeMb: 20
+    maxStreamsPerUser: 10000
+    maxQuerySeries: 500
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 1Gi
+
+  # -- 퍼시스턴스 설정
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  # -- 서비스 포트
+  service:
+    httpPort: 3100
+    grpcPort: 9096
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Tempo - 분산 트레이싱
+# =============================================================================
+tempo:
+  enabled: true
+  replicas: 1
+
+  image:
+    repository: grafana/tempo
+    tag: "2.6.1"
+    pullPolicy: IfNotPresent
+
+  # -- Tempo 설정
+  config:
+    logLevel: info
+    retentionPeriod: "168h"      # 7일
+    maxBlockDuration: "5m"
+    maxBlockBytes: 1073741824     # 1GB
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # -- 퍼시스턴스 설정
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 10Gi
+
+  # -- 서비스 포트
+  service:
+    httpPort: 3200
+    grpcPort: 9095
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Mimir - 장기 메트릭 스토리지
+# =============================================================================
+mimir:
+  enabled: true
+  replicas: 1
+
+  image:
+    repository: grafana/mimir
+    tag: "2.14.2"
+    pullPolicy: IfNotPresent
+
+  # -- Mimir 설정
+  config:
+    multitenancyEnabled: false
+    logLevel: info
+    replicationFactor: 1
+    retentionPeriod: "168h"      # 7일
+    maxGlobalSeriesPerUser: 150000
+    maxGlobalSeriesPerMetric: 20000
+    ingestionRate: 10000
+    ingestionBurstSize: 200000
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # -- 퍼시스턴스 설정
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 20Gi
+
+  # -- 서비스 포트
+  service:
+    httpPort: 8080
+    grpcPort: 9095
+    prometheusPath: "/prometheus"
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# OpenTelemetry Collector - 텔레메트리 파이프라인
+# =============================================================================
+otelCollector:
+  enabled: true
+
+  # -- Deployment 또는 DaemonSet
+  kind: Deployment
+  replicas: 1
+
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: "0.115.1"
+    pullPolicy: IfNotPresent
+
+  # -- Go 메모리 제한 (OOMKill 방지)
+  goMemLimit: "400MiB"
+
+  # -- DaemonSet일 때 hostNetwork 사용 여부
+  hostNetwork: false
+
+  # -- 추가 환경변수
+  env: []
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 100m
+      memory: 256Mi
+    limits:
+      cpu: 1000m
+      memory: 512Mi
+
+  # -- 서비스 설정
+  service:
+    type: ClusterIP
+
+  # -- OTel Collector 파이프라인 설정
+  config:
+    logLevel: info
+    debug: false
+
+    # -- 배치 프로세서 설정
+    batchSize: 8192
+    batchTimeout: "2s"
+    batchMaxSize: 16384
+
+    # -- 메모리 리미터 설정
+    memoryLimitPercentage: 80
+    memorySpikePercentage: 25
+
+    # -- OTLP 최대 수신 메시지 크기 (MiB)
+    maxRecvMsgSizeMib: 4
+
+    # -- Receivers 활성화 설정
+    prometheusReceiver:
+      enabled: true
+
+    k8sEventsReceiver:
+      enabled: false
+
+    hostMetricsReceiver:
+      enabled: false
+
+    kubeletStatsReceiver:
+      enabled: false
+
+    # -- Filelog Receiver (DaemonSet 모드에서 Pod 로그 수집)
+    filelogReceiver:
+      enabled: false
+      includeFilePath: true
+      includePaths:
+        - /var/log/pods/*/*/*.log
+      excludePaths:
+        - /var/log/pods/*/otel-collector/*.log
+      operators:
+        - type: container
+          id: container-parser
+
+    # -- Processors 설정
+    k8sAttributesProcessor:
+      enabled: true
+
+    filterProcessor:
+      enabled: false
+      metricFilters: []
+
+    # -- Exporter 재시도 설정
+    exporterRetry:
+      enabled: true
+
+    # -- Exporter 큐 설정
+    exporterQueue:
+      enabled: true
+      numConsumers: 10
+      queueSize: 5000
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Kube State Metrics - K8s 오브젝트 상태 메트릭
+# =============================================================================
+kubeStateMetrics:
+  enabled: false
+  replicas: 1
+
+  image:
+    repository: registry.k8s.io/kube-state-metrics/kube-state-metrics
+    tag: "v2.13.0"
+    pullPolicy: IfNotPresent
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      cpu: 200m
+      memory: 256Mi
+
+  # -- 서비스 설정
+  service:
+    type: ClusterIP
+    port: 8080
+    telemetryPort: 8081
+
+  # -- 수집할 리소스 종류
+  collectors:
+    - pods
+    - deployments
+    - statefulsets
+    - daemonsets
+    - replicasets
+    - nodes
+    - namespaces
+    - jobs
+    - cronjobs
+    - services
+    - endpoints
+    - persistentvolumeclaims
+    - persistentvolumes
+    - configmaps
+    - resourcequotas
+    - horizontalpodautoscalers
+    - ingresses
+
+  # -- 메트릭 레이블 허용 목록 (카디널리티 제어)
+  metricLabelsAllowlist:
+    pods:
+      - app.kubernetes.io/name
+      - app.kubernetes.io/instance
+      - app.kubernetes.io/component
+    deployments:
+      - app.kubernetes.io/name
+      - app.kubernetes.io/instance
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Node Exporter - 노드 하드웨어/OS 메트릭 (DaemonSet)
+# =============================================================================
+nodeExporter:
+  enabled: false
+
+  image:
+    repository: prom/node-exporter
+    tag: "v1.8.2"
+    pullPolicy: IfNotPresent
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 50m
+      memory: 32Mi
+    limits:
+      cpu: 200m
+      memory: 128Mi
+
+  # -- 서비스 설정
+  service:
+    type: ClusterIP
+    port: 9100
+
+  # -- 활성화할 collector 목록
+  enabledCollectors:
+    - cpu
+    - diskstats
+    - filesystem
+    - loadavg
+    - meminfo
+    - netdev
+    - netstat
+    - os
+    - stat
+    - time
+    - uname
+    - vmstat
+
+  # -- 비활성화할 collector 목록
+  disabledCollectors:
+    - arp
+    - bcache
+    - bonding
+    - btrfs
+    - conntrack
+    - edac
+    - entropy
+    - fibrechannel
+    - infiniband
+    - ipvs
+    - mdadm
+    - nfs
+    - nfsd
+    - nvme
+    - powersupplyclass
+    - rapl
+    - schedstat
+    - sockstat
+    - softnet
+    - tapestats
+    - textfile
+    - wifi
+    - xfs
+    - zfs
+
+  # -- hostPath 마운트 설정
+  hostPaths:
+    proc: /proc
+    sys: /sys
+    rootfs: /
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
