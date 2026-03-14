@@ -183,27 +183,19 @@ tempo:
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================
-# Mimir - 프로덕션
+# VictoriaMetrics - 개발
 # =============================================================================
-mimir:
+victoriaMetrics:
   enabled: true
   # -- 2노드 환경: 2 replicas로 HA 구성
   replicas: 1
 
   image:
-    repository: grafana/mimir
-    tag: "2.14.2"
+    repository: victoriametrics/victoria-metrics
+    tag: "v1.137.0"
 
   config:
-    multitenancyEnabled: false
-    logLevel: info
-    # -- 2노드이므로 replicationFactor=2
-    replicationFactor: 1
-    retentionPeriod: "168h"         # 7일 보존
-    maxGlobalSeriesPerUser: 100000
-    maxGlobalSeriesPerMetric: 10000
-    ingestionRate: 10000
-    ingestionBurstSize: 100000
+    retentionPeriod: "7d"
 
   resources:
     requests:
@@ -218,6 +210,9 @@ mimir:
     accessMode: ReadWriteOnce
     size: 10Gi
 
+  service:
+    httpPort: 8428
+
   nodeSelector: {}
   tolerations:
     - key: "node-role.kubernetes.io/control-plane"
@@ -230,7 +225,7 @@ mimir:
           podAffinityTerm:
             labelSelector:
               matchLabels:
-                app.kubernetes.io/name: mimir
+                app.kubernetes.io/name: victoria-metrics
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================

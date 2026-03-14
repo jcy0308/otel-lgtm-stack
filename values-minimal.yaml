@@ -109,25 +109,18 @@ tempo:
     enabled: false
 
 # =============================================================================
-# Mimir - 최소 리소스
+# VictoriaMetrics - 최소 리소스
 # =============================================================================
-mimir:
+victoriaMetrics:
   enabled: true
   replicas: 1
 
   image:
-    repository: grafana/mimir
-    tag: "2.14.2"
+    repository: victoriametrics/victoria-metrics
+    tag: "v1.137.0"
 
   config:
-    multitenancyEnabled: false
-    logLevel: warn
-    replicationFactor: 1
-    retentionPeriod: "24h"          # 1일만 보존
-    maxGlobalSeriesPerUser: 50000
-    maxGlobalSeriesPerMetric: 5000
-    ingestionRate: 5000
-    ingestionBurstSize: 50000
+    retentionPeriod: "1d"
 
   resources:
     requests:

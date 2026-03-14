@@ -452,7 +452,7 @@ Attributes.builder()
 // ❌ 나쁜 예: 높은 카디널리티
 Attributes.builder()
     .put("order.id", "ORD-2026031100001")        // 무한 증가 → 절대 금지
-    .put("user.id", "user-12345")                // 수만 개 → Mimir 과부하
+    .put("user.id", "user-12345")                // 수만 개 → VictoriaMetrics 과부하
     .put("request.body", "{...}")                // 무한 종류 → 절대 금지
     .build();
 ```
@@ -463,7 +463,7 @@ Attributes.builder()
 
 ## Grafana 대시보드에서 조회
 
-커스텀 메트릭은 Mimir에 저장되며, Grafana에서 PromQL로 조회합니다.
+커스텀 메트릭은 VictoriaMetrics에 저장되며, Grafana에서 PromQL로 조회합니다.
 
 ### Counter 조회
 

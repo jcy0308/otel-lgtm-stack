@@ -49,7 +49,7 @@
 │         │              │              ┌───────────────────────────────────┘  │
 │         ▼              ▼              ▼                                       │
 │  ┌─────────────┐ ┌─────────────┐ ┌─────────────┐                            │
-│  │    Tempo     │ │    Loki     │ │    Mimir    │                            │
+│  │    Tempo     │ │    Loki     │ │ VictoriaMetrics │                        │
 │  │  (Traces)   │ │   (Logs)    │ │  (Metrics)  │                            │
 │  │             │ │             │ │             │                            │
 │  │ • Distribu- │ │ • Ingester  │ │ • Distribu- │                            │
@@ -116,36 +116,33 @@
 #### Exporters (전송기)
 | Exporter | 대상 | 프로토콜 |
 |----------|------|----------|
-| `prometheusremotewrite` | **Mimir** | Prometheus Remote Write |
+| `prometheusremotewrite` | **VictoriaMetrics** | Prometheus Remote Write |
 | `otlphttp/loki` | **Loki** | OTLP HTTP |
 | `otlp/tempo` | **Tempo** | OTLP gRPC |
 
 ---
 
-### 2. Grafana Mimir (메트릭 장기 저장소)
+### 2. VictoriaMetrics (메트릭 저장소)
 
 | 항목 | 설명 |
 |------|------|
-| **역할** | Prometheus 호환 장기 메트릭 저장소. 수평 확장 가능한 TSDB로 대규모 메트릭 데이터 처리 |
-| **이미지** | `grafana/mimir` |
-| **포트** | HTTP: `8080`, gRPC: `9095`, Memberlist: `7946` |
+| **역할** | Prometheus 호환 장기 메트릭 저장소. 단일 바이너리로 가볍게 배포 가능하며 PromQL 조회와 Remote Write를 지원 |
+| **이미지** | `victoriametrics/victoria-metrics` |
+| **포트** | HTTP: `8428` |
 | **워크로드** | StatefulSet |
 
 #### 주요 기능
-- **Prometheus 호환**: PromQL 완벽 지원, Prometheus Remote Write API
-- **수평 확장**: Memberlist 기반 클러스터링으로 동적 스케일링
-- **멀티테넌시**: 조직별 메트릭 격리 지원 (선택적)
-- **장기 보존**: 블록 기반 스토리지로 효율적인 장기 데이터 보존
-- **고가용성**: Replication factor 설정으로 데이터 안정성 보장
+- **Prometheus 호환**: PromQL 조회와 Prometheus Remote Write API 지원
+- **경량 배포**: 단일 바이너리로 간단하게 운영 가능
+- **장기 보존**: retentionPeriod 기반 메트릭 보존
+- **고성능 쓰기/조회**: 고카디널리티 메트릭에도 강한 편
 
 #### 내부 컴포넌트
 | 컴포넌트 | 역할 |
 |----------|------|
-| **Distributor** | 수신된 메트릭을 Ingester로 분배 |
-| **Ingester** | 메트릭 데이터 인메모리 저장 후 블록 플러시 |
-| **Compactor** | 블록 병합 및 다운샘플링으로 스토리지 최적화 |
-| **Store Gateway** | 장기 저장소에서 블록 데이터 조회 |
-| **Querier** | PromQL 쿼리 실행 엔진 |
+| **Single Binary** | 수집, 저장, 조회를 단일 프로세스에서 처리 |
+| **Remote Write Endpoint** | Collector/Tempo Metrics Generator가 메트릭 전송 |
+| **PromQL Query Engine** | Grafana에서 메트릭 조회 |
 
 ---
 
@@ -188,7 +185,7 @@
 - **Metrics Generator**: Trace에서 자동으로 RED 메트릭(Rate, Errors, Duration) 생성
 - **Service Graph**: 마이크로서비스 간 의존성 자동 시각화
 - **Trace-to-Logs**: Trace에서 관련 로그로 바로 이동 (Loki 연동)
-- **Trace-to-Metrics**: Trace에서 관련 메트릭으로 연결 (Mimir 연동)
+- **Trace-to-Metrics**: Trace에서 관련 메트릭으로 연결 (VictoriaMetrics 연동)
 
 #### 내부 컴포넌트
 | 컴포넌트 | 역할 |
@@ -197,7 +194,7 @@
 | **Ingester** | Span 데이터 WAL 저장 및 블록 생성 |
 | **Compactor** | 블록 병합 및 보존 기간 관리 |
 | **Querier** | TraceID 기반 트레이스 조회 |
-| **Metrics Generator** | Span → RED 메트릭 자동 변환 후 Mimir로 전송 |
+| **Metrics Generator** | Span → RED 메트릭 자동 변환 후 VictoriaMetrics로 전송 |
 
 ---
 
@@ -212,7 +209,7 @@
 
 #### 주요 기능
 - **통합 Explore**: Metrics, Logs, Traces를 하나의 UI에서 탐색
-- **자동 데이터소스 연동**: Mimir, Loki, Tempo 자동 구성
+- **자동 데이터소스 연동**: VictoriaMetrics, Loki, Tempo 자동 구성
 - **Unified Alerting**: 메트릭/로그 기반 통합 알림 시스템
 - **Service Map**: Tempo Metrics Generator가 생성한 서비스 맵 시각화
 - **Correlations**: Trace ↔ Log ↔ Metric 간 상호 연결 탐색
@@ -220,7 +217,7 @@
 #### 사전 구성 데이터소스
 | 데이터소스 | 타입 | 용도 |
 |-----------|------|------|
-| **Mimir** | Prometheus | 메트릭 쿼리 (PromQL) |
+| **VictoriaMetrics** | Prometheus | 메트릭 쿼리 (PromQL) |
 | **Loki** | Loki | 로그 쿼리 (LogQL) |
 | **Tempo** | Tempo | 트레이스 조회 |
 
@@ -230,7 +227,7 @@
 
 ### Metrics (메트릭)
 ```
-Application/K8s → [OTLP/Prometheus] → OTel Collector → [Remote Write] → Mimir → Grafana
+Application/K8s → [OTLP/Prometheus] → OTel Collector → [Remote Write] → VictoriaMetrics → Grafana
                                                                             ↑
                                           Tempo (Metrics Generator) ────────┘
 ```
@@ -417,10 +414,10 @@ otelCollector:
 | **Tempo Replicas** | 1 | 1 | 3 |
 | **Tempo Memory** | 128~512Mi | 256Mi~2Gi | 2~8Gi |
 | **Tempo Retention** | 24h | 168h | 336h (14d) |
-| **Mimir Replicas** | 1 | 1 | 3 |
-| **Mimir Memory** | 256Mi~1Gi | 512Mi~2Gi | 4~16Gi |
-| **Mimir Retention** | 24h | 168h | 2160h (90d) |
-| **Mimir Storage** | emptyDir | 20Gi | 200Gi |
+| **VictoriaMetrics Replicas** | 1 | 1 | 2 |
+| **VictoriaMetrics Memory** | 256Mi~1Gi | 512Mi~2Gi | 2~8Gi |
+| **VictoriaMetrics Retention** | 1d | 7d | 90d |
+| **VictoriaMetrics Storage** | emptyDir | 10Gi | 100Gi |
 | **OTel Replicas** | 1 | 1 | 3 |
 | **OTel Memory** | 128~256Mi | 256~512Mi | 1~2Gi |
 | **Persistence** | ❌ | ✅ | ✅ |
@@ -450,8 +447,8 @@ kubectl get pods -n observability -o wide
 # Loki 상태 확인
 kubectl exec -it <loki-pod> -n observability -- wget -qO- http://localhost:3100/ready
 
-# Mimir 상태 확인
-kubectl exec -it <mimir-pod> -n observability -- wget -qO- http://localhost:8080/ready
+# VictoriaMetrics 상태 확인
+kubectl exec -it <vm-pod> -n observability -- wget -qO- http://localhost:8428/health
 
 # Tempo 상태 확인
 kubectl exec -it <tempo-pod> -n observability -- wget -qO- http://localhost:3200/ready
@@ -490,9 +487,9 @@ curl http://localhost:8888/metrics | grep otelcol_exporter
 # Loki 로그 확인
 kubectl logs -l app.kubernetes.io/name=loki -n observability --tail=100
 
-# Mimir 링 상태 확인
-kubectl port-forward svc/<release>-observability-stack-mimir 8080:8080 -n observability
-curl http://localhost:8080/ingester/ring
+# VictoriaMetrics 메트릭 확인
+kubectl port-forward svc/<release>-observability-stack-vm 8428:8428 -n observability
+curl http://localhost:8428/metrics
 ```
 
 ---
@@ -525,10 +522,10 @@ observability-stack/
     │   ├── configmap.yaml              # Tempo 설정
     │   ├── statefulset.yaml            # Tempo StatefulSet
     │   └── service.yaml                # Tempo Service (ClusterIP + Headless) + SA
-    ├── mimir/
-    │   ├── configmap.yaml              # Mimir 설정
-    │   ├── statefulset.yaml            # Mimir StatefulSet
-    │   └── service.yaml                # Mimir Service (ClusterIP + Headless) + SA
+    ├── mimir/                         # VictoriaMetrics 템플릿 보관 경로(legacy path)
+    │   ├── configmap.yaml              # VictoriaMetrics placeholder 설정
+    │   ├── statefulset.yaml            # VictoriaMetrics StatefulSet
+    │   └── service.yaml                # VictoriaMetrics Service + SA
     └── otel-collector/
         ├── configmap.yaml              # OTel Collector 파이프라인 설정
         ├── deployment.yaml             # OTel Collector Deployment/DaemonSet
@@ -546,5 +543,5 @@ observability-stack/
 - **Grafana**: AGPL-3.0
 - **Loki**: AGPL-3.0
 - **Tempo**: AGPL-3.0
-- **Mimir**: AGPL-3.0
+- **VictoriaMetrics**: Apache-2.0
 - **OpenTelemetry Collector**: Apache-2.0

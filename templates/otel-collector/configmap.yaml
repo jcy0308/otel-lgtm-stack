@@ -219,10 +219,10 @@ data:
         verbosity: detailed
       {{- end }}
 
-      # Mimir로 메트릭 전송 (Prometheus Remote Write)
-      {{- if .Values.mimir.enabled }}
+      # VictoriaMetrics로 메트릭 전송 (Prometheus Remote Write)
+      {{- if .Values.victoriaMetrics.enabled }}
       prometheusremotewrite:
-        endpoint: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort }}/api/v1/push
+        endpoint: http://{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}/api/v1/write
         tls:
           insecure: true
         resource_to_telemetry_conversion:
@@ -320,7 +320,7 @@ data:
             {{- end }}
             - batch
           exporters:
-            {{- if .Values.mimir.enabled }}
+            {{- if .Values.victoriaMetrics.enabled }}
             - prometheusremotewrite
             {{- end }}
             {{- if .Values.otelCollector.config.debug }}

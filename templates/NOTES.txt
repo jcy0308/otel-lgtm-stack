@@ -17,8 +17,8 @@ Components:
 {{- if .Values.tempo.enabled }}
   ✅ Tempo          - Distributed Tracing
 {{- end }}
-{{- if .Values.mimir.enabled }}
-  ✅ Mimir          - Metrics Storage (Long-term)
+{{- if .Values.victoriaMetrics.enabled }}
+  ✅ VictoriaMetrics - Metrics Storage
 {{- end }}
 {{- if .Values.otelCollector.enabled }}
   ✅ OTel Collector - Telemetry Pipeline

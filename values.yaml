@@ -177,27 +177,20 @@ tempo:
   affinity: {}
 
 # =============================================================================
-# Mimir - 장기 메트릭 스토리지
+# VictoriaMetrics - 장기 메트릭 스토리지
 # =============================================================================
-mimir:
+victoriaMetrics:
   enabled: true
   replicas: 1
 
   image:
-    repository: grafana/mimir
-    tag: "2.14.2"
+    repository: victoriametrics/victoria-metrics
+    tag: "v1.137.0"
     pullPolicy: IfNotPresent
 
-  # -- Mimir 설정
+  # -- VictoriaMetrics 설정
   config:
-    multitenancyEnabled: false
-    logLevel: info
-    replicationFactor: 1
-    retentionPeriod: "168h"      # 7일
-    maxGlobalSeriesPerUser: 150000
-    maxGlobalSeriesPerMetric: 20000
-    ingestionRate: 10000
-    ingestionBurstSize: 200000
+    retentionPeriod: "7d"
 
   # -- 리소스 설정
   resources:
@@ -216,9 +209,7 @@ mimir:
 
   # -- 서비스 포트
   service:
-    httpPort: 8080
-    grpcPort: 9095
-    prometheusPath: "/prometheus"
+    httpPort: 8428
 
   # -- 스케줄링 설정
   nodeSelector: {}

@@ -28,7 +28,7 @@
 │   Application    │ ──────────────────────────────▶   │   OTel Collector     │
 │                  │         OTLP (HTTP :4318)         │   (DaemonSet)        │
 │  ┌────────────┐  │ ──────────────────────────────▶   │                      │
-│  │ OTel SDK   │  │                                   │  ┌─▶ Mimir (Metrics) │
+│  │ OTel SDK   │  │                                   │  ┌─▶ VictoriaMetrics │
 │  │            │  │   Traces ─────────────────────▶   │  ├─▶ Loki  (Logs)   │
 │  │ • Traces   │  │   Metrics ────────────────────▶   │  └─▶ Tempo (Traces) │
 │  │ • Metrics  │  │   Logs ───────────────────────▶   │                      │
@@ -349,7 +349,7 @@ kubectl port-forward svc/observability-observability-stack-grafana -n observabil
 ```
 
 - **Traces**: Explore → Tempo 데이터소스 → 서비스명으로 검색
-- **Metrics**: Explore → Mimir 데이터소스 → `{service_name="my-app"}` 쿼리
+- **Metrics**: Explore → VictoriaMetrics 데이터소스 → `{service_name="my-app"}` 쿼리
 - **Logs**: Explore → Loki 데이터소스 → `{service_name="my-app"}` 쿼리
 
 ### 3. 터미널에서 직접 테스트
@@ -388,7 +388,7 @@ kubectl logs -l app.kubernetes.io/name=otel-collector -n observability --tail=50
 | DNS 오류 | 서비스명/네임스페이스 확인 | FQDN 사용: `svc.cluster.local` |
 | 데이터 유실 | Collector 메모리 부족 | `resources.limits.memory` 증가 |
 | 트레이스만 없음 | Tempo 연결 확인 | Collector 로그에서 exporter 에러 확인 |
-| 메트릭만 없음 | Mimir 연결 확인 | `prometheusremotewrite` exporter 상태 확인 |
+| 메트릭만 없음 | VictoriaMetrics 연결 확인 | `prometheusremotewrite` exporter 상태 확인 |
 
 ### 유용한 디버깅 명령어
 
@@ -413,9 +413,9 @@ kubectl run curl-test --rm -it --restart=Never --image=curlimages/curl -- \
 kubectl run curl-test --rm -it --restart=Never --image=curlimages/curl -- \
   curl -s http://observability-observability-stack-loki.observability:3100/ready
 
-# Mimir 연결 확인
+# VictoriaMetrics 연결 확인
 kubectl run curl-test --rm -it --restart=Never --image=curlimages/curl -- \
-  curl -s http://observability-observability-stack-mimir.observability:8080/ready
+  curl -s http://observability-observability-stack-vm.observability:8428/health
 ```
 
 ### 샘플링 조정 (트레이스 양이 너무 많을 때)

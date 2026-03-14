@@ -180,7 +180,7 @@ Spring Boot 내부
         → PeriodicMetricReader (30초 간격)
         → OtlpGrpcMetricExporter
         → Collector :4317
-        → Mimir
+        → VictoriaMetrics
 ```
 
 **Micrometer가 메트릭을 만드는 예시 (Spring 내부 코드):**
@@ -204,7 +204,7 @@ public class WebMvcMetricsFilter extends OncePerRequestFilter {
     }
 }
 // → OTel Agent가 이 meterRegistry를 Bridge로 연결
-//   → 이 메트릭이 OTel SDK → Collector → Mimir로 전송
+//   → 이 메트릭이 OTel SDK → Collector → VictoriaMetrics로 전송
 ```
 
 ### 경로 B: Agent 직접 계측
@@ -218,7 +218,7 @@ JDBC 호출 (java.sql.Statement.execute())
   │     ├─ Span 생성 (트레이스)
   │     └─ db.client.connections.usage 메트릭 직접 기록 (메트릭)
   │
-  └─ OTel SDK → Collector → Mimir
+  └─ OTel SDK → Collector → VictoriaMetrics
 ```
 
 ```
@@ -228,7 +228,7 @@ HTTP Client 호출 (RestTemplate, OkHttp 등)
   │     ├─ Span 생성 (트레이스)
   │     └─ http.client.request.duration 메트릭 직접 기록 (메트릭)
   │
-  └─ OTel SDK → Collector → Mimir
+  └─ OTel SDK → Collector → VictoriaMetrics
 ```
 
 ### 자동 수집되는 메트릭 목록

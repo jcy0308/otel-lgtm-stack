@@ -1,78 +1,13 @@
-{{- if .Values.mimir.enabled }}
+{{- if .Values.victoriaMetrics.enabled }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: {{ include "observability.fullname" . }}-mimir-config
+  name: {{ include "observability.fullname" . }}-vm-config
   namespace: {{ include "observability.namespace" . }}
   labels:
     {{- include "observability.labels" . | nindent 4 }}
-    app.kubernetes.io/component: mimir
+    app.kubernetes.io/component: victoria-metrics
 data:
-  mimir.yaml: |
-    multitenancy_enabled: {{ .Values.mimir.config.multitenancyEnabled | default false }}
-
-    server:
-      http_listen_port: {{ .Values.mimir.service.httpPort | default 8080 }}
-      grpc_listen_port: {{ .Values.mimir.service.grpcPort | default 9095 }}
-      log_level: {{ .Values.mimir.config.logLevel | default "info" }}
-
-    common:
-      storage:
-        backend: filesystem
-        filesystem:
-          dir: /data/mimir
-
-    ingester:
-      ring:
-        replication_factor: {{ .Values.mimir.config.replicationFactor | default 1 }}
-        kvstore:
-          store: memberlist
-
-    distributor:
-      ring:
-        kvstore:
-          store: memberlist
-
-    compactor:
-      data_dir: /data/mimir/compactor
-      sharding_ring:
-        kvstore:
-          store: memberlist
-
-    store_gateway:
-      sharding_ring:
-        replication_factor: 1
-        kvstore:
-          store: memberlist
-
-    blocks_storage:
-      backend: filesystem
-      filesystem:
-        dir: /data/mimir/blocks
-      tsdb:
-        dir: /data/mimir/tsdb
-        block_ranges_period:
-          - 2h
-        retention_period: {{ .Values.mimir.config.retentionPeriod | default "168h" }}
-      bucket_store:
-        sync_dir: /data/mimir/tsdb-sync
-
-    limits:
-      max_global_series_per_user: {{ .Values.mimir.config.maxGlobalSeriesPerUser | default 150000 }}
-      max_global_series_per_metric: {{ .Values.mimir.config.maxGlobalSeriesPerMetric | default 20000 }}
-      ingestion_rate: {{ .Values.mimir.config.ingestionRate | default 10000 }}
-      ingestion_burst_size: {{ .Values.mimir.config.ingestionBurstSize | default 200000 }}
-      compactor_blocks_retention_period: {{ .Values.mimir.config.retentionPeriod | default "168h" }}
-
-    memberlist:
-      join_members:
-        - {{ include "observability.fullname" . }}-mimir-headless:7946
-
-    ruler_storage:
-      backend: filesystem
-      filesystem:
-        dir: /data/mimir/rules
-
-    usage_stats:
-      enabled: false
+  placeholder: |
+    victoria-metrics uses command-line flags; this ConfigMap is reserved for future overrides.
 {{- end }}

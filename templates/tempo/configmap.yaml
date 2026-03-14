@@ -39,8 +39,8 @@ data:
       storage:
         path: /var/tempo/generator/wal
         remote_write:
-        {{- if .Values.mimir.enabled }}
-          - url: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort }}/api/v1/push
+        {{- if .Values.victoriaMetrics.enabled }}
+          - url: http://{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}/api/v1/write
             send_exemplars: true
         {{- end }}
       traces_storage:

@@ -1,105 +1,89 @@
-{{- if .Values.mimir.enabled }}
+{{- if .Values.victoriaMetrics.enabled }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: {{ include "observability.fullname" . }}-mimir
+  name: {{ include "observability.fullname" . }}-vm
   namespace: {{ include "observability.namespace" . }}
   labels:
     {{- include "observability.labels" . | nindent 4 }}
-    app.kubernetes.io/component: mimir
+    app.kubernetes.io/component: victoria-metrics
 spec:
-  replicas: {{ .Values.mimir.replicas | default 1 }}
-  serviceName: {{ include "observability.fullname" . }}-mimir-headless
+  replicas: {{ .Values.victoriaMetrics.replicas | default 1 }}
+  serviceName: {{ include "observability.fullname" . }}-vm
   podManagementPolicy: Parallel
   selector:
     matchLabels:
-      {{- include "observability.selectorLabels" (dict "name" "mimir" "instance" .Release.Name) | nindent 6 }}
+      {{- include "observability.selectorLabels" (dict "name" "vm" "instance" .Release.Name) | nindent 6 }}
   template:
     metadata:
       labels:
-        {{- include "observability.selectorLabels" (dict "name" "mimir" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.selectorLabels" (dict "name" "vm" "instance" .Release.Name) | nindent 8 }}
         {{- include "observability.labels" . | nindent 8 }}
-        app.kubernetes.io/component: mimir
-      annotations:
-        checksum/config: {{ include (print $.Template.BasePath "/mimir/configmap.yaml") . | sha256sum }}
+        app.kubernetes.io/component: victoria-metrics
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
-      serviceAccountName: {{ include "observability.fullname" . }}-mimir
+      serviceAccountName: {{ include "observability.fullname" . }}-vm
       securityContext:
         runAsUser: 10001
         runAsGroup: 10001
         fsGroup: 10001
       containers:
-        - name: mimir
-          image: "{{ .Values.mimir.image.repository }}:{{ .Values.mimir.image.tag }}"
-          imagePullPolicy: {{ .Values.mimir.image.pullPolicy | default "IfNotPresent" }}
-          workingDir: /data/mimir
+        - name: victoria-metrics
+          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy | default "IfNotPresent" }}
           args:
-            - -config.file=/etc/mimir/mimir.yaml
-            - -target=all
+            - -storageDataPath=/victoria-metrics-data
+            - -retentionPeriod={{ .Values.victoriaMetrics.config.retentionPeriod | default "7d" }}
+            - -httpListenAddr=:{{ .Values.victoriaMetrics.service.httpPort | default 8428 }}
           ports:
             - name: http
-              containerPort: {{ .Values.mimir.service.httpPort | default 8080 }}
-              protocol: TCP
-            - name: grpc
-              containerPort: {{ .Values.mimir.service.grpcPort | default 9095 }}
-              protocol: TCP
-            - name: memberlist
-              containerPort: 7946
+              containerPort: {{ .Values.victoriaMetrics.service.httpPort | default 8428 }}
               protocol: TCP
           livenessProbe:
             httpGet:
-              path: /ready
+              path: /health
               port: http
-            initialDelaySeconds: 45
+            initialDelaySeconds: 30
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 5
           readinessProbe:
             httpGet:
-              path: /ready
+              path: /health
               port: http
-            initialDelaySeconds: 30
+            initialDelaySeconds: 15
             periodSeconds: 10
             timeoutSeconds: 5
             failureThreshold: 3
           resources:
-            {{- toYaml .Values.mimir.resources | nindent 12 }}
+            {{- toYaml .Values.victoriaMetrics.resources | nindent 12 }}
           volumeMounts:
-            - name: config
-              mountPath: /etc/mimir
             - name: data
-              mountPath: /data/mimir
-      volumes:
-        - name: config
-          configMap:
-            name: {{ include "observability.fullname" . }}-mimir-config
-        {{- if not .Values.mimir.persistence.enabled }}
-        - name: data
-          emptyDir: {}
-        {{- end }}
-      {{- with .Values.mimir.nodeSelector }}
+              mountPath: /victoria-metrics-data
+      {{- with .Values.victoriaMetrics.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.mimir.tolerations }}
+      {{- with .Values.victoriaMetrics.tolerations }}
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.mimir.affinity }}
+      {{- with .Values.victoriaMetrics.affinity }}
       affinity:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-  {{- if .Values.mimir.persistence.enabled }}
+  {{- if .Values.victoriaMetrics.persistence.enabled }}
   volumeClaimTemplates:
     - metadata:
         name: data
       spec:
         accessModes:
-          - {{ .Values.mimir.persistence.accessMode | default "ReadWriteOnce" }}
+          - {{ .Values.victoriaMetrics.persistence.accessMode | default "ReadWriteOnce" }}
         {{- include "observability.storageClass" . | nindent 8 }}
         resources:
           requests:
-            storage: {{ .Values.mimir.persistence.size | default "20Gi" }}
+            storage: {{ .Values.victoriaMetrics.persistence.size | default "10Gi" }}
+  {{- else }}
+      volumeClaimTemplates: []
   {{- end }}
 {{- end }}
