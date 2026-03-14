@@ -1,365 +1,488 @@
-# 성능 POC 계획
+# 성능 POC 실행 가이드 (3노드 온프렘 Kubernetes)
 
-이 문서는 `values-dev.yaml` 기반의 dev 모드와 `values-prod.yaml` 기반의 prod 모드를 실제 Kubernetes 클러스터에 배포했을 때, 어느 정도의 수집 처리량과 안정성을 보이는지 비교 검증하기 위한 POC 계획입니다. 우선 dev 모드에서 상한선과 병목 자원을 확인한 뒤, 같은 방식으로 prod 모드에서 확장성과 장애 내성을 검증하는 흐름을 전제로 합니다.
+이 문서는 `values-dev.yaml`과 `values-prod.yaml`를 기준으로, 3노드 온프렘 Kubernetes에서 Observability 스택 성능 POC를 **재현 가능**하게 수행하기 위한 실행 가이드입니다.
 
-## 목표
+핵심 원칙:
+- 먼저 `dev`에서 병목 자원(CPU/메모리/디스크 IO/네트워크) 위치를 찾는다.
+- 같은 부하 프로파일을 `prod`에 적용해 오버헤드를 정량화한다.
+- `VM/Loki/Tempo`는 각각 임계치 테스트를 별도로 수행한다.
+- 모든 단계에서 명령어 단위로 결과를 수집한다.
 
-- dev 모드와 prod 모드의 수집 성능 차이를 수치로 확인한다.
-- CPU, 메모리, 디스크 IO, 네트워크 중 어떤 자원이 먼저 병목이 되는지 식별한다.
-- 병목 자원이 포화되기 직전의 최대 안정 처리량을 추정한다.
-- 운영 환경에 필요한 최소 노드 수, CPU/메모리, 스토리지 성능 요구사항을 추정한다.
-- 장애 상황에서 데이터 손실과 복구 시간을 확인한다.
+## 범위와 목표
 
-## 검증 대상
+- `dev`와 `prod` 간 최대 안정 처리량 차이 확인
+- 자원 병목의 최초 발생 지점 확인
+- 장애 상황에서 복구 시간(RTO)과 데이터 손실 유무 확인
 
-| 구분 | dev 모드 | prod 모드 |
-|------|----------|-----------|
-| Values 파일 | `values-dev.yaml` | `values-prod.yaml` |
-| 목적 | 개발/사전 검증용 상한선 확인 | 운영 수용량 및 안정성 검증 |
-| Loki / Tempo | single-binary에 가까운 단순 구성 | MinIO shared storage + memberlist 기반 다중 replica 구성 |
-| VictoriaMetrics | single mode | cluster mode (`vminsert=2`, `vmselect=2`, `vmstorage=3`) |
-| 배포 위치 | 로컬 또는 소규모 테스트 클러스터 | 실제 운영과 유사한 다중 노드 클러스터 |
+## 비교 프레임워크 (중요)
 
-## 핵심 질문
+`prod`는 HA/복제 구조라 동일 입력 부하에서도 자원 사용량이 더 큰 것이 정상입니다. 따라서 아래 3트랙으로 분리해 비교합니다.
 
-- 초당 얼마만큼의 traces, metrics, logs를 안정적으로 수집할 수 있는가
-- 수집량이 증가할 때 CPU, 메모리, 디스크 IO, 네트워크 중 어떤 자원이 먼저 한계에 도달하는가
-- 병목 자원이 포화되기 직전의 최대 안정 처리량은 어느 정도인가
-- Collector queue backlog 없이 sustained load를 얼마나 버틸 수 있는가
-- Grafana 조회 성능은 어느 시점부터 저하되는가
-- 노드 또는 Pod 장애 시 복구 시간과 데이터 유실 범위는 어느 정도인가
+| 트랙 | 목적 | 비교 방식 |
+|---|---|---|
+| Track A: 동일 입력 부하 | HA 오버헤드 측정 | dev/prod에 같은 ingest rate 주입 후 자원 사용량 비교 |
+| Track B: 최대 처리량 | 실질 수용량 측정 | dev/prod 각각 부하를 단계적으로 올려 임계치 도달점 확인 |
+| Track C: 장애 복원력 | 안정성 비교 | 각 모드 `최대 처리량의 60~70%` 부하에서 장애 주입 후 복구시간 비교 |
 
-## 측정 지표
+오버헤드 계산 예시:
 
-### 플랫폼 공통
+```text
+CPU Overhead(%) = ((prod_cpu - dev_cpu) / dev_cpu) * 100
+Memory Overhead(%) = ((prod_mem - dev_mem) / dev_mem) * 100
+```
 
-- CPU 사용률: node, pod, container
-- 메모리 RSS / working set
-- 디스크 사용량과 IO latency
-- 네트워크 throughput
-- Pod restart 수
-- PVC 사용량 증가 속도
+## 클러스터 전제
 
-### OpenTelemetry Collector
+- 노드: 3대 (control-plane 1 + worker 2)
+- 스토리지: `values`에 정의된 storage class 사용
+- prod에서 Loki/Tempo는 MinIO(S3 API) 기반 shared storage 사용
+- K8s metrics: `metrics-server` 활성화 필요 (`kubectl top` 사용)
 
-- OTLP ingest rate
-- exporter queue size
-- dropped metrics / logs / traces
-- batch processor flush latency
-- remote write / OTLP export error rate
+## 측정 항목과 명령어
 
-### Loki
+| 카테고리 | 측정 항목 | 기본 명령어 |
+|---|---|---|
+| Node 자원 | CPU/Memory 사용량 | `kubectl top nodes` |
+| Pod 자원 | 컴포넌트별 CPU/Memory | `kubectl top pods -n <ns>` |
+| 스토리지 | PVC 사용 추이/상태 | `kubectl get pvc -n <ns>` |
+| 안정성 | Pod 재시작/비정상 상태 | `kubectl get pods -n <ns> -o wide` |
+| Collector | drop/export error | `kubectl logs -n <ns> <collector-pod>` |
+| 쿼리 성능 | Grafana API 응답, VM query 응답 | `curl` 기반 반복 호출 |
+| 장애복원 | 재시작 후 Ready 복귀 시간 | `kubectl rollout status ... --timeout=...` |
 
-- log ingest throughput
-- query latency p50 / p95 / p99
-- chunk flush 주기
+### PromQL로 자원 병목 관찰 (권장)
 
-### Tempo
-
-- trace ingest throughput
-- span drop 여부
-- trace query latency
-- metrics-generator remote write latency
-
-### VictoriaMetrics
-
-- remote write ingest rate
-- query latency p50 / p95 / p99
-- active time series 수
-- storage growth rate
-- prod 모드에서는 `vminsert`, `vmselect`, `vmstorage`별 CPU / 메모리 분리 측정
-
-### Grafana
-
-- dashboard load time
-- Explore query latency
-- concurrent user 수에 따른 응답시간 변화
-
-## 사전 준비
+dev(single VM):
 
 ```bash
-cd /Users/jcy/Desktop/otel-lgtm-stack
+curl -sG "http://127.0.0.1:8428/api/v1/query" \
+  --data-urlencode 'query=avg(100 - rate(node_cpu_seconds_total{mode="idle"}[5m]) * 100) by (instance)'
+```
+
+prod(cluster VMselect):
+
+```bash
+curl -sG "http://127.0.0.1:8481/select/0/prometheus/api/v1/query" \
+  --data-urlencode 'query=avg(100 - rate(node_cpu_seconds_total{mode="idle"}[5m]) * 100) by (instance)'
+```
+
+메모리/디스크/네트워크 예시:
+
+```bash
+# 메모리 사용률
+QUERY='(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'
+
+# 디스크 IO throughput
+QUERY='sum(rate(node_disk_read_bytes_total[5m]) + rate(node_disk_written_bytes_total[5m])) by (instance)'
+
+# 네트워크 throughput
+QUERY='sum(rate(node_network_receive_bytes_total[5m]) + rate(node_network_transmit_bytes_total[5m])) by (instance)'
+```
+
+## 공통 준비
+
+```bash
+cd /Users/jcy/scg/otel-lgtm-stack
 export KUBECONFIG=~/.kube/config:~/.kube/config-kind
+
+export DEV_RELEASE=observability-dev
+export DEV_NS=observability-dev
+export PROD_RELEASE=observability
+export PROD_NS=observability
+
+mkdir -p /tmp/otel-poc/dev
+mkdir -p /tmp/otel-poc/prod
 ```
 
 ```bash
-# metrics-server가 있어야 kubectl top 사용 가능
+# 권장 부하 단계 (초당 이벤트)
+export STAGES="100 300 500 1000 2000 3000 5000"
+export STAGE_DURATION=15m
+```
+
+```bash
+# 사전 점검
+kubectl get nodes -o wide
 kubectl top nodes
 kubectl top pods -A
 ```
 
 ```bash
-# 테스트 결과 저장 디렉터리
-mkdir -p /tmp/otel-poc/dev
-mkdir -p /tmp/otel-poc/prod
+# 공통 스냅샷 함수
+snapshot() {
+  local ns="$1"
+  local out="$2"
+  mkdir -p "$out"
+  date > "$out/time.txt"
+  kubectl get pods -n "$ns" -o wide > "$out/pods.txt"
+  kubectl top pods -n "$ns" > "$out/pods-top.txt"
+  kubectl top nodes > "$out/nodes-top.txt"
+  kubectl get pvc -n "$ns" > "$out/pvc.txt"
+}
 ```
 
-## 테스트 시나리오
+```bash
+# 단일 신호(traces|metrics|logs) 부하 실행 함수
+run_signal_stage() {
+  local signal="$1"   # traces | metrics | logs
+  local rate="$2"
+  local duration="$3"
+  local release="$4"
+  local ns="$5"
 
-### 1. Dev Baseline
+  kubectl -n otel-load delete job tg-${signal}-${rate}-${release} --ignore-not-found
 
-목적:
-- dev 모드의 기본 리소스 사용량과 안정 상태를 확인
+  kubectl -n otel-load create job tg-${signal}-${rate}-${release} \
+    --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest \
+    -- /telemetrygen ${signal} \
+    --otlp-endpoint ${release}-observability-stack-otel-collector.${ns}.svc.cluster.local:4317 \
+    --otlp-insecure \
+    --rate ${rate} \
+    --duration ${duration}
 
-실행 명령:
+  kubectl -n otel-load wait --for=condition=complete job/tg-${signal}-${rate}-${release} --timeout=40m
+}
+```
+
+## 1) DEV POC (values-dev.yaml)
+
+### 1-1. 배포 및 정상화 확인
 
 ```bash
-helm upgrade --install observability-dev . \
-  -n observability-dev \
+helm upgrade --install "$DEV_RELEASE" . \
+  -n "$DEV_NS" \
   --create-namespace \
   -f values-dev.yaml
 ```
 
 ```bash
-kubectl get pods -n observability-dev
-kubectl get svc -n observability-dev
-kubectl get pvc -n observability-dev
-kubectl top nodes
-kubectl top pods -n observability-dev
+kubectl rollout status statefulset/${DEV_RELEASE}-observability-stack-loki -n "$DEV_NS" --timeout=300s
+kubectl rollout status statefulset/${DEV_RELEASE}-observability-stack-tempo -n "$DEV_NS" --timeout=300s
+kubectl rollout status statefulset/${DEV_RELEASE}-observability-stack-vm -n "$DEV_NS" --timeout=300s
+kubectl rollout status daemonset/${DEV_RELEASE}-observability-stack-otel-collector -n "$DEV_NS" --timeout=300s
 ```
 
+### 1-2. Baseline (30분)
+
 ```bash
-# 30분 동안 5분 간격으로 스냅샷 수집
 for i in 1 2 3 4 5 6; do
-  date >> /tmp/otel-poc/dev/baseline-summary.txt
-  kubectl top nodes >> /tmp/otel-poc/dev/baseline-node-top.txt
-  kubectl top pods -n observability-dev >> /tmp/otel-poc/dev/baseline-pod-top.txt
-  kubectl get pods -n observability-dev >> /tmp/otel-poc/dev/baseline-pods.txt
+  snapshot "$DEV_NS" "/tmp/otel-poc/dev/baseline-$i"
   sleep 300
 done
 ```
 
-### 2. Dev OTLP Ingest Load
-
-목적:
-- dev 모드에서 부하를 단계적으로 올리면서 어떤 자원이 먼저 포화되는지 확인
-
-실행 명령:
+### 1-3. OTLP 부하 테스트 (단계형)
 
 ```bash
 kubectl create namespace otel-load --dry-run=client -o yaml | kubectl apply -f -
 ```
 
 ```bash
-# low 단계: traces 100/sec, 15분
-kubectl -n otel-load run telemetrygen-traces-low \
-  --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest \
-  --restart=Never \
-  -- /telemetrygen traces \
-  --otlp-endpoint observability-dev-observability-stack-otel-collector.observability-dev.svc.cluster.local:4317 \
-  --otlp-insecure \
-  --rate 100 \
-  --duration 15m
+run_stage() {
+  local rate="$1"
+  local duration="$2"
+  kubectl -n otel-load delete job tg-traces-${rate} tg-metrics-${rate} --ignore-not-found
+
+  kubectl -n otel-load create job tg-traces-${rate} \
+    --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest \
+    -- /telemetrygen traces \
+    --otlp-endpoint ${DEV_RELEASE}-observability-stack-otel-collector.${DEV_NS}.svc.cluster.local:4317 \
+    --otlp-insecure \
+    --rate ${rate} \
+    --duration ${duration}
+
+  kubectl -n otel-load create job tg-metrics-${rate} \
+    --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest \
+    -- /telemetrygen metrics \
+    --otlp-endpoint ${DEV_RELEASE}-observability-stack-otel-collector.${DEV_NS}.svc.cluster.local:4317 \
+    --otlp-insecure \
+    --rate ${rate} \
+    --duration ${duration}
+
+  kubectl -n otel-load wait --for=condition=complete job/tg-traces-${rate} --timeout=40m
+  kubectl -n otel-load wait --for=condition=complete job/tg-metrics-${rate} --timeout=40m
+}
 ```
 
 ```bash
-# low 단계: metrics 100/sec, 15분
-kubectl -n otel-load run telemetrygen-metrics-low \
-  --image=ghcr.io/open-telemetry/opentelemetry-collector-contrib/telemetrygen:latest \
-  --restart=Never \
-  -- /telemetrygen metrics \
-  --otlp-endpoint observability-dev-observability-stack-otel-collector.observability-dev.svc.cluster.local:4317 \
-  --otlp-insecure \
-  --rate 100 \
-  --duration 15m
+# low, medium, high, burst
+run_stage 100 15m
+snapshot "$DEV_NS" "/tmp/otel-poc/dev/load-100"
+
+run_stage 500 15m
+snapshot "$DEV_NS" "/tmp/otel-poc/dev/load-500"
+
+run_stage 1000 15m
+snapshot "$DEV_NS" "/tmp/otel-poc/dev/load-1000"
+
+run_stage 3000 15m
+snapshot "$DEV_NS" "/tmp/otel-poc/dev/load-3000"
 ```
 
+### 1-4. Query 부하 테스트
+
+터미널 A:
+
 ```bash
-# 단계별 관측 명령
-kubectl top nodes
-kubectl top pods -n observability-dev
-kubectl logs -n observability-dev -l app.kubernetes.io/name=otel-collector --tail=200
-kubectl logs -n observability-dev -l app.kubernetes.io/name=loki --tail=200
-kubectl logs -n observability-dev -l app.kubernetes.io/name=tempo --tail=200
+kubectl port-forward -n "$DEV_NS" svc/${DEV_RELEASE}-observability-stack-grafana 3000:3000
 ```
 
+터미널 B:
+
 ```bash
-# medium / high / burst는 rate만 바꿔 반복
-# medium: 500/sec
-# high: 1000/sec
-# burst: 3000/sec
-kubectl -n otel-load delete pod telemetrygen-traces-low telemetrygen-metrics-low --ignore-not-found
+kubectl port-forward -n "$DEV_NS" svc/${DEV_RELEASE}-observability-stack-vm 8428:8428
 ```
 
-```bash
-# 각 단계 결과 기록
-date >> /tmp/otel-poc/dev/ingest-summary.txt
-kubectl top nodes >> /tmp/otel-poc/dev/ingest-node-top.txt
-kubectl top pods -n observability-dev >> /tmp/otel-poc/dev/ingest-pod-top.txt
-```
-
-### 3. Dev Query Load
-
-목적:
-- Grafana 조회 부하가 걸릴 때 어떤 자원이 먼저 증가하는지 확인
-
-실행 명령:
+터미널 C:
 
 ```bash
-kubectl port-forward -n observability-dev svc/observability-dev-observability-stack-grafana 3000:3000
-```
+export GRAFANA_USER=admin
+export GRAFANA_PASS=CHANGE_ME_STRONG_PASSWORD
 
-```bash
-kubectl port-forward -n observability-dev svc/observability-dev-observability-stack-vm 8428:8428
-```
-
-```bash
-# Grafana health / datasource 확인
-curl -u admin:CHANGE_ME_STRONG_PASSWORD http://127.0.0.1:3000/api/health
-curl -u admin:CHANGE_ME_STRONG_PASSWORD http://127.0.0.1:3000/api/datasources
-```
-
-```bash
-# VictoriaMetrics query 반복
-for i in $(seq 1 100); do
-  curl -s "http://127.0.0.1:8428/api/v1/query?query=up" > /dev/null
+# Grafana API 반복
+for i in $(seq 1 200); do
+  curl -s -u ${GRAFANA_USER}:${GRAFANA_PASS} http://127.0.0.1:3000/api/search > /dev/null
 done
-```
 
-```bash
-# Grafana API 반복 호출
-for i in $(seq 1 50); do
-  curl -s -u admin:CHANGE_ME_STRONG_PASSWORD http://127.0.0.1:3000/api/search > /dev/null
+# VM query 반복
+for i in $(seq 1 200); do
+  curl -sG "http://127.0.0.1:8428/api/v1/query" --data-urlencode 'query=up' > /dev/null
 done
+
+snapshot "$DEV_NS" "/tmp/otel-poc/dev/query-load"
 ```
 
+### 1-5. 장애복원 테스트
+
 ```bash
-# Query 부하 중 리소스 상태 확인
-kubectl top nodes
-kubectl top pods -n observability-dev
+kubectl rollout restart daemonset/${DEV_RELEASE}-observability-stack-otel-collector -n "$DEV_NS"
+kubectl rollout status daemonset/${DEV_RELEASE}-observability-stack-otel-collector -n "$DEV_NS" --timeout=300s
+
+kubectl rollout restart statefulset/${DEV_RELEASE}-observability-stack-loki -n "$DEV_NS"
+kubectl rollout status statefulset/${DEV_RELEASE}-observability-stack-loki -n "$DEV_NS" --timeout=300s
+
+kubectl rollout restart statefulset/${DEV_RELEASE}-observability-stack-tempo -n "$DEV_NS"
+kubectl rollout status statefulset/${DEV_RELEASE}-observability-stack-tempo -n "$DEV_NS" --timeout=300s
+
+kubectl rollout restart statefulset/${DEV_RELEASE}-observability-stack-vm -n "$DEV_NS"
+kubectl rollout status statefulset/${DEV_RELEASE}-observability-stack-vm -n "$DEV_NS" --timeout=300s
+
+snapshot "$DEV_NS" "/tmp/otel-poc/dev/recovery"
 ```
 
-### 4. Dev 장애 복원력
+## 2) PROD POC (values-prod.yaml)
 
-목적:
-- 단일 Pod 재시작 시 데이터 수집과 조회가 얼마나 빨리 정상화되는지 확인
-
-실행 명령:
+### 2-1. 배포 및 정상화 확인
 
 ```bash
-# Collector 재시작
-kubectl rollout restart deployment/observability-dev-observability-stack-otel-collector -n observability-dev
-kubectl rollout status deployment/observability-dev-observability-stack-otel-collector -n observability-dev --timeout=180s
-```
-
-```bash
-# Loki / Tempo / VictoriaMetrics 재시작
-kubectl rollout restart statefulset/observability-dev-observability-stack-loki -n observability-dev
-kubectl rollout restart statefulset/observability-dev-observability-stack-tempo -n observability-dev
-kubectl rollout restart statefulset/observability-dev-observability-stack-vm -n observability-dev
-```
-
-```bash
-kubectl rollout status statefulset/observability-dev-observability-stack-loki -n observability-dev --timeout=180s
-kubectl rollout status statefulset/observability-dev-observability-stack-tempo -n observability-dev --timeout=180s
-kubectl rollout status statefulset/observability-dev-observability-stack-vm -n observability-dev --timeout=180s
-```
-
-```bash
-# 장애 후 상태 수집
-kubectl get pods -n observability-dev
-kubectl top pods -n observability-dev
-kubectl logs -n observability-dev -l app.kubernetes.io/name=otel-collector --tail=200
-```
-
-### 5. Prod 검증 확장
-
-목적:
-- dev에서 확인한 부하 패턴을 prod 토폴로지에 적용해 확장성과 장애 내성을 검증
-
-실행 명령:
-
-```bash
-helm upgrade --install observability . \
-  -n observability \
+helm upgrade --install "$PROD_RELEASE" . \
+  -n "$PROD_NS" \
   --create-namespace \
   -f values-prod.yaml
 ```
 
 ```bash
-kubectl get pods -n observability
-kubectl top pods -n observability
-kubectl get pvc -n observability
+kubectl rollout status statefulset/${PROD_RELEASE}-observability-stack-loki -n "$PROD_NS" --timeout=600s
+kubectl rollout status statefulset/${PROD_RELEASE}-observability-stack-tempo -n "$PROD_NS" --timeout=600s
+kubectl rollout status deployment/${PROD_RELEASE}-observability-stack-vminsert -n "$PROD_NS" --timeout=600s
+kubectl rollout status deployment/${PROD_RELEASE}-observability-stack-vmselect -n "$PROD_NS" --timeout=600s
+kubectl rollout status statefulset/${PROD_RELEASE}-observability-stack-vmstorage -n "$PROD_NS" --timeout=600s
+kubectl rollout status daemonset/${PROD_RELEASE}-observability-stack-otel-collector -n "$PROD_NS" --timeout=600s
+```
+
+### 2-2. Baseline (30분)
+
+```bash
+for i in 1 2 3 4 5 6; do
+  snapshot "$PROD_NS" "/tmp/otel-poc/prod/baseline-$i"
+  sleep 300
+done
+```
+
+### 2-3. 동일 부하 프로파일 재실행
+
+```bash
+run_stage 100 15m
+snapshot "$PROD_NS" "/tmp/otel-poc/prod/load-100"
+
+run_stage 500 15m
+snapshot "$PROD_NS" "/tmp/otel-poc/prod/load-500"
+
+run_stage 1000 15m
+snapshot "$PROD_NS" "/tmp/otel-poc/prod/load-1000"
+
+run_stage 3000 15m
+snapshot "$PROD_NS" "/tmp/otel-poc/prod/load-3000"
+```
+
+### 2-4. Prod Query endpoint 검증
+
+터미널 A:
+
+```bash
+kubectl port-forward -n "$PROD_NS" svc/${PROD_RELEASE}-observability-stack-vm 8481:8481
+```
+
+터미널 B:
+
+```bash
+curl -sG "http://127.0.0.1:8481/select/0/prometheus/api/v1/query" \
+  --data-urlencode 'query=up'
+
+curl -sG "http://127.0.0.1:8481/select/0/prometheus/api/v1/query" \
+  --data-urlencode 'query=(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100'
+```
+
+### 2-5. 장애복원 테스트 (컴포넌트 + 노드)
+
+```bash
+# 컴포넌트 장애
+kubectl delete pod -n "$PROD_NS" ${PROD_RELEASE}-observability-stack-loki-0
+kubectl delete pod -n "$PROD_NS" ${PROD_RELEASE}-observability-stack-tempo-0
+kubectl delete pod -n "$PROD_NS" ${PROD_RELEASE}-observability-stack-vmstorage-0
 ```
 
 ```bash
-# prod 핵심 워크로드 확인
-kubectl get pods -n observability -l app.kubernetes.io/component=victoria-metrics
-kubectl get pods -n observability -l app.kubernetes.io/name=loki
-kubectl get pods -n observability -l app.kubernetes.io/name=tempo
-```
+# 노드 장애 시뮬레이션 (운영 시간 외 권장)
+kubectl get nodes -o name
+export FAILURE_NODE=<worker-node-name>
+kubectl drain ${FAILURE_NODE} --ignore-daemonsets --delete-emptydir-data --force
 
-```bash
-# prod 장애 시나리오 예시
-kubectl delete pod -n observability -l app.kubernetes.io/name=loki --field-selector=status.phase=Running --wait=false
-kubectl delete pod -n observability -l app.kubernetes.io/name=tempo --field-selector=status.phase=Running --wait=false
-kubectl delete pod -n observability -l app.kubernetes.io/name=vmstorage --field-selector=status.phase=Running --wait=false
-```
-
-```bash
-# 장애 후 상태 및 자원 재확인
-kubectl get pods -n observability
+# 관찰
+kubectl get pods -n "$PROD_NS" -o wide
 kubectl top nodes
-kubectl top pods -n observability
+kubectl top pods -n "$PROD_NS"
+
+# 원복
+kubectl uncordon ${FAILURE_NODE}
 ```
 
-## 부하 생성 도구
+```bash
+snapshot "$PROD_NS" "/tmp/otel-poc/prod/recovery"
+```
 
-| 대상 | 권장 도구 | 비고 |
-|------|-----------|------|
-| OTLP traces / logs / metrics | `telemetrygen`, 샘플 앱 | 가장 간단한 기준 부하 |
-| HTTP 애플리케이션 부하 | `k6`, `vegeta` | 실제 API 트래픽과 연계 가능 |
-| Grafana 조회 부하 | `k6/browser` 또는 API 호출 스크립트 | dashboard / Explore 응답시간 측정 |
+## 3) 컴포넌트별 임계치 테스트 (필수)
 
-## 실행 순서
+아래 3개 테스트는 서로 독립적으로 수행합니다.
+- VictoriaMetrics 임계치: `metrics` 신호만 주입
+- Loki 임계치: `logs` 신호만 주입
+- Tempo 임계치: `traces` 신호만 주입
 
-### dev 모드
+임계치 도달 기준(권장):
+- 특정 노드 CPU 또는 메모리 80% 초과가 5분 이상 지속
+- 해당 컴포넌트의 drop/error 지표 증가
+- 해당 컴포넌트 질의 응답이 급격히 악화
+- Pod 재시작 또는 Ready 불안정 발생
 
-1. `values-dev.yaml`로 배포
-2. Baseline 측정
-3. OTLP ingest 부하 테스트
-4. Grafana / VM query 부하 테스트
-5. 단일 Pod 장애 복구 테스트
+### 3-1) VictoriaMetrics 임계치 테스트
 
-### prod 모드
+목적:
+- 메트릭 수집/저장 경로(Collector -> VM)의 최대 안정 처리량 확인
 
-1. `values-prod.yaml`로 배포
-2. `Loki`, `Tempo`, `vminsert`, `vmselect`, `vmstorage`가 모두 `Ready`인지 확인
-3. dev에서 사용한 부하 패턴을 동일하게 재실행
-4. `Loki`, `Tempo`, `vmstorage`, 노드 장애 복구 테스트
+실행 명령:
 
-## 수집할 결과물
+```bash
+# dev (single VM)
+kubectl port-forward -n "$DEV_NS" svc/${DEV_RELEASE}-observability-stack-vm 8428:8428
 
-- Helm values 파일 버전
-- 클러스터 노드 수와 스펙
-- 테스트 구간별 ingest rate
-- 구간별 CPU / 메모리 / 디스크 / 네트워크 사용량
-- 쿼리 latency p50 / p95 / p99
-- 에러율과 dropped telemetry 수
-- 장애 유도 시 복구 시간
-- 최종 권장 운영 한계치
+for rate in $STAGES; do
+  run_signal_stage metrics "$rate" "$STAGE_DURATION" "$DEV_RELEASE" "$DEV_NS"
+  snapshot "$DEV_NS" "/tmp/otel-poc/dev/vm-threshold-${rate}"
+  time curl -sG "http://127.0.0.1:8428/api/v1/query" --data-urlencode 'query=up' > /dev/null
+done
+```
 
-## 판정 기준 예시
+```bash
+# prod (cluster VMselect)
+kubectl port-forward -n "$PROD_NS" svc/${PROD_RELEASE}-observability-stack-vm 8481:8481
 
-- 1시간 sustained load 동안 dropped telemetry가 0 또는 허용 범위 이내
-- p95 query latency가 목표 SLA 이내
-- Pod restart 없이 안정적으로 유지
-- prod 모드에서 단일 Pod 또는 단일 노드 장애 후 서비스 지속 가능
-- 저장소 증가율이 운영 보존 정책과 디스크 용량 계획에 부합
+for rate in $STAGES; do
+  run_signal_stage metrics "$rate" "$STAGE_DURATION" "$PROD_RELEASE" "$PROD_NS"
+  snapshot "$PROD_NS" "/tmp/otel-poc/prod/vm-threshold-${rate}"
+  kubectl top pods -n "$PROD_NS" | rg 'vmstorage|vmselect|vminsert|otel-collector'
+  time curl -sG "http://127.0.0.1:8481/select/0/prometheus/api/v1/query" --data-urlencode 'query=up' > /dev/null
+done
+```
 
-## 권장 산출물 템플릿
+### 3-2) Loki 임계치 테스트
 
-| 항목 | dev 결과 | prod 결과 | 비고 |
-|------|----------|-----------|------|
-| 최대 안정 OTLP ingest rate |  |  |  |
-| Grafana p95 query latency |  |  |  |
-| VictoriaMetrics storage/day |  |  |  |
-| 장애 복구 시간 |  |  |  |
-| dropped telemetry |  |  |  |
-| 최초 병목 자원 |  |  | CPU / Memory / Disk / Network |
+목적:
+- 로그 ingest/query 경로(Collector -> Loki)의 최대 안정 처리량 확인
 
-## 해석 가이드
+실행 명령:
 
-- dev 모드는 기능 검증과 대략적인 상한선을 보는 용도입니다.
-- prod 모드는 실제 운영에 필요한 headroom과 장애 내성을 보는 용도입니다.
-- 최종 운영 권장치는 평균값이 아니라 sustained load와 장애 테스트 결과를 기준으로 잡는 것이 맞습니다.
+```bash
+kubectl port-forward -n "$DEV_NS" svc/${DEV_RELEASE}-observability-stack-loki 3100:3100
+kubectl port-forward -n "$PROD_NS" svc/${PROD_RELEASE}-observability-stack-loki 3110:3100
+```
+
+```bash
+# dev
+for rate in $STAGES; do
+  run_signal_stage logs "$rate" "$STAGE_DURATION" "$DEV_RELEASE" "$DEV_NS"
+  snapshot "$DEV_NS" "/tmp/otel-poc/dev/loki-threshold-${rate}"
+  time curl -sG "http://127.0.0.1:3100/loki/api/v1/query" --data-urlencode 'query=count_over_time({} [1m])' > /dev/null
+done
+```
+
+```bash
+# prod
+for rate in $STAGES; do
+  run_signal_stage logs "$rate" "$STAGE_DURATION" "$PROD_RELEASE" "$PROD_NS"
+  snapshot "$PROD_NS" "/tmp/otel-poc/prod/loki-threshold-${rate}"
+  kubectl top pods -n "$PROD_NS" | rg 'loki|otel-collector'
+  time curl -sG "http://127.0.0.1:3110/loki/api/v1/query" --data-urlencode 'query=count_over_time({} [1m])' > /dev/null
+done
+```
+
+### 3-3) Tempo 임계치 테스트
+
+목적:
+- 트레이스 ingest/store 경로(Collector -> Tempo)의 최대 안정 처리량 확인
+
+실행 명령:
+
+```bash
+kubectl port-forward -n "$DEV_NS" svc/${DEV_RELEASE}-observability-stack-tempo 3200:3200
+kubectl port-forward -n "$PROD_NS" svc/${PROD_RELEASE}-observability-stack-tempo 3210:3200
+```
+
+```bash
+# dev
+for rate in $STAGES; do
+  run_signal_stage traces "$rate" "$STAGE_DURATION" "$DEV_RELEASE" "$DEV_NS"
+  snapshot "$DEV_NS" "/tmp/otel-poc/dev/tempo-threshold-${rate}"
+  curl -s http://127.0.0.1:3200/metrics | rg 'tempo_distributor_spans_received_total|tempo_distributor_spans_dropped_total' || true
+done
+```
+
+```bash
+# prod
+for rate in $STAGES; do
+  run_signal_stage traces "$rate" "$STAGE_DURATION" "$PROD_RELEASE" "$PROD_NS"
+  snapshot "$PROD_NS" "/tmp/otel-poc/prod/tempo-threshold-${rate}"
+  kubectl top pods -n "$PROD_NS" | rg 'tempo|otel-collector'
+  curl -s http://127.0.0.1:3210/metrics | rg 'tempo_distributor_spans_received_total|tempo_distributor_spans_dropped_total' || true
+done
+```
+
+## 결과 정리 템플릿
+
+| 항목 | dev 결과 | prod 결과 | 판정 |
+|---|---|---|---|
+| 최대 안정 ingest rate |  |  |  |
+| VM 최대 안정 rate |  |  |  |
+| Loki 최대 안정 rate |  |  |  |
+| Tempo 최대 안정 rate |  |  |  |
+| 최초 병목 자원 (CPU/Memory/Disk/Network) |  |  |  |
+| Collector drop/error 발생 여부 |  |  |  |
+| Grafana p95 응답 체감 |  |  |  |
+| 장애 복구 시간(RTO) |  |  |  |
+| 데이터 유실 여부 |  |  |  |
+
+## 권장 판정 기준
+
+- `kubectl top nodes` 기준 특정 노드 CPU 또는 메모리 80% 이상이 5분 이상 지속되면 병목 경고
+- Collector exporter/send_failed 관련 오류가 지속적으로 증가하면 실패
+- 장애 테스트 후 핵심 워크로드가 제한 시간 내 Ready 복귀하지 못하면 실패
+- prod에서 dev 대비 처리량 증가가 없고 자원 포화만 빨라지면 튜닝 필요
