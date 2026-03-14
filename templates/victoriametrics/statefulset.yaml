@@ -21,7 +21,6 @@ spec:
         {{- include "observability.selectorLabels" (dict "name" "vminsert" "instance" .Release.Name) | nindent 8 }}
         {{- include "observability.labels" . | nindent 8 }}
         app.kubernetes.io/component: victoria-metrics
-        app.kubernetes.io/name: victoria-metrics
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ $fullname }}-vm
@@ -93,7 +92,6 @@ spec:
         {{- include "observability.selectorLabels" (dict "name" "vmselect" "instance" .Release.Name) | nindent 8 }}
         {{- include "observability.labels" . | nindent 8 }}
         app.kubernetes.io/component: victoria-metrics
-        app.kubernetes.io/name: victoria-metrics
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ $fullname }}-vm
@@ -167,7 +165,6 @@ spec:
         {{- include "observability.selectorLabels" (dict "name" "vmstorage" "instance" .Release.Name) | nindent 8 }}
         {{- include "observability.labels" . | nindent 8 }}
         app.kubernetes.io/component: victoria-metrics
-        app.kubernetes.io/name: victoria-metrics
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ $fullname }}-vm
@@ -264,7 +261,6 @@ spec:
         {{- include "observability.selectorLabels" (dict "name" "vm" "instance" .Release.Name) | nindent 8 }}
         {{- include "observability.labels" . | nindent 8 }}
         app.kubernetes.io/component: victoria-metrics
-        app.kubernetes.io/name: victoria-metrics
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "observability.fullname" . }}-vm
