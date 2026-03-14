@@ -1,18 +1,18 @@
 # =============================================================================
 # Observability Stack - Production Values (프로덕션 환경)
 # =============================================================================
-# 온프렘 2노드 클러스터에 최적화된 프로덕션 설정입니다.
+# 온프렘 3노드 클러스터에 최적화된 프로덕션 설정입니다.
 #
 # 클러스터 구성:
-#   - 컨트롤 노드 1대 (워커 겸용) + 워커 노드 1대
+#   - 컨트롤 노드 1대 (워커 겸용) + 워커 노드 2대
 #   - 각 노드: Intel Xeon E5-2620 v4 32코어, 128GB RAM
-#   - 총 가용: 64코어, 256GB RAM (시스템/K8s 오버헤드 제외 시 약 56코어, 220GB)
+#   - 총 가용: 96코어, 384GB RAM (시스템/K8s 오버헤드 제외 시 약 84코어, 330GB)
 #
 # 리소스 배분 전략:
-#   - Observability 스택 총 requests: ~12 CPU, ~24GB RAM (노드당 ~6 CPU, ~12GB)
+#   - Observability 스택 총 requests: ~14 CPU, ~28GB RAM
 #   - 나머지 리소스는 워크로드 및 시스템 컴포넌트용으로 확보
-#   - 2노드 제약으로 replicas=2, replicationFactor=2 적용
-#   - preferred anti-affinity로 가능하면 분산, 불가능 시에도 스케줄링 보장
+#   - VictoriaMetrics cluster는 vmstorage=3, vminsert=2, vmselect=2로 구성
+#   - preferred anti-affinity로 최대한 분산, 불가능 시에도 스케줄링 보장
 #
 # 사용법:
 #   helm install observability . -f values-prod.yaml
@@ -187,8 +187,8 @@ tempo:
 # =============================================================================
 victoriaMetrics:
   enabled: true
-  # -- 2노드 환경: 2 replicas로 HA 구성
-  replicas: 2
+  # -- 3노드 환경: vminsert/vmselect/vmstorage를 분리한 cluster 모드 사용
+  mode: cluster
 
   image:
     repository: victoriametrics/victoria-metrics
@@ -212,6 +212,28 @@ victoriaMetrics:
 
   service:
     httpPort: 8428
+
+  cluster:
+    # -- 3노드 환경: 3개의 vmstorage에 2중 복제
+    replicationFactor: 2
+    dedupMinScrapeInterval: 15s
+
+    vminsert:
+      replicas: 2
+      service:
+        httpPort: 8480
+
+    vmselect:
+      replicas: 2
+      service:
+        httpPort: 8481
+
+    vmstorage:
+      replicas: 3
+      service:
+        httpPort: 8482
+        vminsertPort: 8400
+        vmselectPort: 8401
 
   nodeSelector: {}
   tolerations:

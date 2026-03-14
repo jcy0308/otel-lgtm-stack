@@ -40,7 +40,7 @@ data:
         path: /var/tempo/generator/wal
         remote_write:
         {{- if .Values.victoriaMetrics.enabled }}
-          - url: http://{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}/api/v1/write
+          - url: http://{{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}{{ include "observability.fullname" . }}-vm-insert:{{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort }}/insert/0/prometheus{{ else }}{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}{{ end }}/api/v1/write
             send_exemplars: true
         {{- end }}
       traces_storage:

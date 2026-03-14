@@ -1,4 +1,248 @@
 {{- if .Values.victoriaMetrics.enabled }}
+{{- if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}
+{{- $ns := include "observability.namespace" . }}
+{{- $fullname := include "observability.fullname" . }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-vminsert
+  namespace: {{ $ns }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-metrics
+spec:
+  replicas: {{ .Values.victoriaMetrics.cluster.vminsert.replicas | default 2 }}
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "vminsert" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "vminsert" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: victoria-metrics
+        app.kubernetes.io/name: victoria-metrics
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $fullname }}-vm
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: vminsert
+          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - -httpListenAddr=:{{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort | default 8480 }}
+            - -replicationFactor={{ .Values.victoriaMetrics.cluster.replicationFactor | default 1 }}
+            {{- range $i := until (int (.Values.victoriaMetrics.cluster.vmstorage.replicas | default 2)) }}
+            - -storageNode={{ $fullname }}-vmstorage-{{ $i }}.{{ $fullname }}-vmstorage.{{ $ns }}.svc.cluster.local:{{ $.Values.victoriaMetrics.cluster.vmstorage.service.vminsertPort | default 8400 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort | default 8480 }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.victoriaMetrics.resources | nindent 12 }}
+      {{- with .Values.victoriaMetrics.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.victoriaMetrics.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.victoriaMetrics.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $fullname }}-vmselect
+  namespace: {{ $ns }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-metrics
+spec:
+  replicas: {{ .Values.victoriaMetrics.cluster.vmselect.replicas | default 2 }}
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "vmselect" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "vmselect" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: victoria-metrics
+        app.kubernetes.io/name: victoria-metrics
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $fullname }}-vm
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: vmselect
+          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - -httpListenAddr=:{{ .Values.victoriaMetrics.cluster.vmselect.service.httpPort | default 8481 }}
+            - -dedup.minScrapeInterval={{ .Values.victoriaMetrics.cluster.dedupMinScrapeInterval | default "15s" }}
+            {{- range $i := until (int (.Values.victoriaMetrics.cluster.vmstorage.replicas | default 2)) }}
+            - -storageNode={{ $fullname }}-vmstorage-{{ $i }}.{{ $fullname }}-vmstorage.{{ $ns }}.svc.cluster.local:{{ $.Values.victoriaMetrics.cluster.vmstorage.service.vmselectPort | default 8401 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.victoriaMetrics.cluster.vmselect.service.httpPort | default 8481 }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.victoriaMetrics.resources | nindent 12 }}
+      {{- with .Values.victoriaMetrics.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.victoriaMetrics.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.victoriaMetrics.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ $fullname }}-vmstorage
+  namespace: {{ $ns }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-metrics
+spec:
+  replicas: {{ .Values.victoriaMetrics.cluster.vmstorage.replicas | default 2 }}
+  serviceName: {{ $fullname }}-vmstorage
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      {{- include "observability.selectorLabels" (dict "name" "vmstorage" "instance" .Release.Name) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "observability.selectorLabels" (dict "name" "vmstorage" "instance" .Release.Name) | nindent 8 }}
+        {{- include "observability.labels" . | nindent 8 }}
+        app.kubernetes.io/component: victoria-metrics
+        app.kubernetes.io/name: victoria-metrics
+    spec:
+      {{- include "observability.imagePullSecrets" . | nindent 6 }}
+      serviceAccountName: {{ $fullname }}-vm
+      securityContext:
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+      containers:
+        - name: vmstorage
+          image: "{{ .Values.victoriaMetrics.image.repository }}:{{ .Values.victoriaMetrics.image.tag }}"
+          imagePullPolicy: {{ .Values.victoriaMetrics.image.pullPolicy | default "IfNotPresent" }}
+          args:
+            - -storageDataPath=/victoria-metrics-data
+            - -retentionPeriod={{ .Values.victoriaMetrics.config.retentionPeriod | default "7d" }}
+            - -httpListenAddr=:{{ .Values.victoriaMetrics.cluster.vmstorage.service.httpPort | default 8482 }}
+            - -vminsertAddr=:{{ .Values.victoriaMetrics.cluster.vmstorage.service.vminsertPort | default 8400 }}
+            - -vmselectAddr=:{{ .Values.victoriaMetrics.cluster.vmstorage.service.vmselectPort | default 8401 }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.victoriaMetrics.cluster.vmstorage.service.httpPort | default 8482 }}
+              protocol: TCP
+            - name: vminsert
+              containerPort: {{ .Values.victoriaMetrics.cluster.vmstorage.service.vminsertPort | default 8400 }}
+              protocol: TCP
+            - name: vmselect
+              containerPort: {{ .Values.victoriaMetrics.cluster.vmstorage.service.vmselectPort | default 8401 }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.victoriaMetrics.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: /victoria-metrics-data
+      {{- with .Values.victoriaMetrics.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.victoriaMetrics.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.victoriaMetrics.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.victoriaMetrics.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - {{ .Values.victoriaMetrics.persistence.accessMode | default "ReadWriteOnce" }}
+        {{- include "observability.storageClass" . | nindent 8 }}
+        resources:
+          requests:
+            storage: {{ .Values.victoriaMetrics.persistence.size | default "10Gi" }}
+  {{- else }}
+      volumeClaimTemplates: []
+  {{- end }}
+{{- else }}
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
@@ -20,6 +264,7 @@ spec:
         {{- include "observability.selectorLabels" (dict "name" "vm" "instance" .Release.Name) | nindent 8 }}
         {{- include "observability.labels" . | nindent 8 }}
         app.kubernetes.io/component: victoria-metrics
+        app.kubernetes.io/name: victoria-metrics
     spec:
       {{- include "observability.imagePullSecrets" . | nindent 6 }}
       serviceAccountName: {{ include "observability.fullname" . }}-vm
@@ -86,4 +331,5 @@ spec:
   {{- else }}
       volumeClaimTemplates: []
   {{- end }}
+{{- end }}
 {{- end }}

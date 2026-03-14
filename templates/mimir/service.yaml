@@ -10,13 +10,63 @@ metadata:
 spec:
   type: ClusterIP
   ports:
-    - port: {{ .Values.victoriaMetrics.service.httpPort | default 8428 }}
+    - port: {{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}{{ .Values.victoriaMetrics.cluster.vmselect.service.httpPort | default 8481 }}{{ else }}{{ .Values.victoriaMetrics.service.httpPort | default 8428 }}{{ end }}
       targetPort: http
       protocol: TCP
       name: http
   selector:
+    {{- if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}
+    {{- include "observability.selectorLabels" (dict "name" "vmselect" "instance" .Release.Name) | nindent 4 }}
+    {{- else }}
     {{- include "observability.selectorLabels" (dict "name" "vm" "instance" .Release.Name) | nindent 4 }}
+    {{- end }}
 ---
+{{- if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-vm-insert
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-metrics
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort | default 8480 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "vminsert" "instance" .Release.Name) | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "observability.fullname" . }}-vmstorage
+  namespace: {{ include "observability.namespace" . }}
+  labels:
+    {{- include "observability.labels" . | nindent 4 }}
+    app.kubernetes.io/component: victoria-metrics
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ .Values.victoriaMetrics.cluster.vmstorage.service.httpPort | default 8482 }}
+      targetPort: http
+      protocol: TCP
+      name: http
+    - port: {{ .Values.victoriaMetrics.cluster.vmstorage.service.vminsertPort | default 8400 }}
+      targetPort: vminsert
+      protocol: TCP
+      name: vminsert
+    - port: {{ .Values.victoriaMetrics.cluster.vmstorage.service.vmselectPort | default 8401 }}
+      targetPort: vmselect
+      protocol: TCP
+      name: vmselect
+  selector:
+    {{- include "observability.selectorLabels" (dict "name" "vmstorage" "instance" .Release.Name) | nindent 4 }}
+---
+{{- end }}
 apiVersion: v1
 kind: ServiceAccount
 metadata:

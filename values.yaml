@@ -181,6 +181,7 @@ tempo:
 # =============================================================================
 victoriaMetrics:
   enabled: true
+  mode: single
   replicas: 1
 
   image:
@@ -210,6 +211,27 @@ victoriaMetrics:
   # -- 서비스 포트
   service:
     httpPort: 8428
+
+  cluster:
+    replicationFactor: 1
+    dedupMinScrapeInterval: 15s
+
+    vminsert:
+      replicas: 2
+      service:
+        httpPort: 8480
+
+    vmselect:
+      replicas: 2
+      service:
+        httpPort: 8481
+
+    vmstorage:
+      replicas: 2
+      service:
+        httpPort: 8482
+        vminsertPort: 8400
+        vmselectPort: 8401
 
   # -- 스케줄링 설정
   nodeSelector: {}

@@ -41,7 +41,7 @@ data:
       uid: victoriametrics
       type: prometheus
       access: proxy
-      url: http://{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}
+      url: http://{{ include "observability.fullname" . }}-vm:{{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}{{ .Values.victoriaMetrics.cluster.vmselect.service.httpPort }}{{ else }}{{ .Values.victoriaMetrics.service.httpPort }}{{ end }}{{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}/select/0/prometheus{{ end }}
       isDefault: true
       editable: true
       jsonData:

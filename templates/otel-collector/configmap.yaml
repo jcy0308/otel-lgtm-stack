@@ -222,7 +222,7 @@ data:
       # VictoriaMetrics로 메트릭 전송 (Prometheus Remote Write)
       {{- if .Values.victoriaMetrics.enabled }}
       prometheusremotewrite:
-        endpoint: http://{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}/api/v1/write
+        endpoint: http://{{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}{{ include "observability.fullname" . }}-vm-insert:{{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort }}/insert/0/prometheus{{ else }}{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}{{ end }}/api/v1/write
         tls:
           insecure: true
         resource_to_telemetry_conversion:
