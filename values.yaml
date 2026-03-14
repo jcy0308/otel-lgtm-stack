@@ -17,6 +17,13 @@ global:
   storageClass: ""
   # -- 이미지 풀 시크릿
   imagePullSecrets: []
+  objectStorage:
+    minio:
+      endpoint: ""
+      accessKey: ""
+      secretKey: ""
+      insecure: false
+      forcePathStyle: true
 
 # -- 이름 오버라이드
 nameOverride: ""
@@ -106,6 +113,12 @@ loki:
     ingestionBurstSizeMb: 20
     maxStreamsPerUser: 10000
     maxQuerySeries: 500
+    gossipPort: 7946
+
+  storage:
+    backend: filesystem
+    minio:
+      bucket: ""
 
   # -- 리소스 설정
   resources:
@@ -147,9 +160,16 @@ tempo:
   # -- Tempo 설정
   config:
     logLevel: info
+    replicationFactor: 1
     retentionPeriod: "168h"      # 7일
     maxBlockDuration: "5m"
     maxBlockBytes: 1073741824     # 1GB
+    gossipPort: 7946
+
+  storage:
+    backend: local
+    minio:
+      bucket: ""
 
   # -- 리소스 설정
   resources:

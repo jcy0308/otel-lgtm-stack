@@ -26,6 +26,10 @@ spec:
       targetPort: otlp-http
       protocol: TCP
       name: otlp-http
+    - port: {{ .Values.tempo.config.gossipPort | default 7946 }}
+      targetPort: gossip
+      protocol: TCP
+      name: gossip
   selector:
     {{- include "observability.selectorLabels" (dict "name" "tempo" "instance" .Release.Name) | nindent 4 }}
 ---
@@ -49,6 +53,10 @@ spec:
       targetPort: grpc
       protocol: TCP
       name: grpc
+    - port: {{ .Values.tempo.config.gossipPort | default 7946 }}
+      targetPort: gossip
+      protocol: TCP
+      name: gossip
   selector:
     {{- include "observability.selectorLabels" (dict "name" "tempo" "instance" .Release.Name) | nindent 4 }}
 ---

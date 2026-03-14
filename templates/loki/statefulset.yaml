@@ -43,6 +43,9 @@ spec:
             - name: grpc
               containerPort: {{ .Values.loki.service.grpcPort | default 9096 }}
               protocol: TCP
+            - name: gossip
+              containerPort: {{ .Values.loki.config.gossipPort | default 7946 }}
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /ready

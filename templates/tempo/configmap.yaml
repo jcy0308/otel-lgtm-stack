@@ -1,4 +1,5 @@
 {{- if .Values.tempo.enabled }}
+{{- $minio := .Values.global.objectStorage.minio | default dict }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -23,7 +24,19 @@ data:
             http:
               endpoint: "0.0.0.0:4318"
 
+    {{- if gt (int (.Values.tempo.replicas | default 1)) 1 }}
+    memberlist:
+      bind_port: {{ .Values.tempo.config.gossipPort | default 7946 }}
+      join_members:
+        - {{ include "observability.fullname" . }}-tempo-headless.{{ include "observability.namespace" . }}.svc.cluster.local:{{ .Values.tempo.config.gossipPort | default 7946 }}
+    {{- end }}
+
     ingester:
+      lifecycler:
+        ring:
+          kvstore:
+            store: {{ if gt (int (.Values.tempo.replicas | default 1)) 1 }}memberlist{{ else }}inmemory{{ end }}
+          replication_factor: {{ .Values.tempo.config.replicationFactor | default 1 }}
       max_block_duration: {{ .Values.tempo.config.maxBlockDuration | default "5m" }}
       max_block_bytes: {{ .Values.tempo.config.maxBlockBytes | default 1073741824 }}
 
@@ -48,11 +61,21 @@ data:
 
     storage:
       trace:
-        backend: local
+        backend: {{ .Values.tempo.storage.backend | default "local" }}
         wal:
           path: /var/tempo/wal
+        {{- if eq (.Values.tempo.storage.backend | default "local") "s3" }}
+        s3:
+          bucket: {{ .Values.tempo.storage.minio.bucket | quote }}
+          endpoint: {{ $minio.endpoint | quote }}
+          access_key: {{ $minio.accessKey | quote }}
+          secret_key: {{ $minio.secretKey | quote }}
+          insecure: {{ $minio.insecure | default false }}
+          forcepathstyle: {{ $minio.forcePathStyle | default true }}
+        {{- else }}
         local:
           path: /var/tempo/blocks
+        {{- end }}
         block:
           bloom_filter_false_positive: 0.05
           v2_index_downsample_bytes: 1000

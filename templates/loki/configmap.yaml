@@ -1,4 +1,5 @@
 {{- if .Values.loki.enabled }}
+{{- $minio := .Values.global.objectStorage.minio | default dict }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -19,13 +20,30 @@ data:
     common:
       path_prefix: /loki
       storage:
+        {{- if eq (.Values.loki.storage.backend | default "filesystem") "s3" }}
+        s3:
+          endpoint: {{ $minio.endpoint | quote }}
+          bucketnames: {{ .Values.loki.storage.minio.bucket | quote }}
+          access_key_id: {{ $minio.accessKey | quote }}
+          secret_access_key: {{ $minio.secretKey | quote }}
+          insecure: {{ $minio.insecure | default false }}
+          s3forcepathstyle: {{ $minio.forcePathStyle | default true }}
+        {{- else }}
         filesystem:
           chunks_directory: /loki/chunks
           rules_directory: /loki/rules
+        {{- end }}
       replication_factor: {{ .Values.loki.config.replicationFactor | default 1 }}
       ring:
         kvstore:
-          store: inmemory
+          store: {{ if and (eq (.Values.loki.storage.backend | default "filesystem") "s3") (gt (int (.Values.loki.replicas | default 1)) 1) }}memberlist{{ else }}inmemory{{ end }}
+
+    {{- if and (eq (.Values.loki.storage.backend | default "filesystem") "s3") (gt (int (.Values.loki.replicas | default 1)) 1) }}
+    memberlist:
+      bind_port: {{ .Values.loki.config.gossipPort | default 7946 }}
+      join_members:
+        - {{ include "observability.fullname" . }}-loki-headless.{{ include "observability.namespace" . }}.svc.cluster.local:{{ .Values.loki.config.gossipPort | default 7946 }}
+    {{- end }}
 
     query_range:
       results_cache:
@@ -38,7 +56,7 @@ data:
       configs:
         - from: "2024-01-01"
           store: tsdb
-          object_store: filesystem
+          object_store: {{ .Values.loki.storage.backend | default "filesystem" }}
           schema: v13
           index:
             prefix: index_
@@ -48,6 +66,15 @@ data:
       tsdb_shipper:
         active_index_directory: /loki/tsdb-index
         cache_location: /loki/tsdb-cache
+      {{- if eq (.Values.loki.storage.backend | default "filesystem") "s3" }}
+      aws:
+        endpoint: {{ $minio.endpoint | quote }}
+        bucketnames: {{ .Values.loki.storage.minio.bucket | quote }}
+        access_key_id: {{ $minio.accessKey | quote }}
+        secret_access_key: {{ $minio.secretKey | quote }}
+        insecure: {{ $minio.insecure | default false }}
+        s3forcepathstyle: {{ $minio.forcePathStyle | default true }}
+      {{- end }}
 
     limits_config:
       retention_period: {{ .Values.loki.config.retentionPeriod | default "168h" }}

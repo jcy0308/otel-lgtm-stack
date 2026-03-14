@@ -12,6 +12,7 @@
 - [설정 가이드](#-설정-가이드)
 - [Values 파라미터](#-values-파라미터)
 - [운영 가이드](#-운영-가이드)
+- [추가 문서](#-추가-문서)
 
 ---
 
@@ -544,6 +545,15 @@ observability-stack/
         ├── service.yaml                # OTel Collector Service + SA
         └── rbac.yaml                   # ClusterRole + ClusterRoleBinding
 ```
+
+---
+
+## 📚 추가 문서
+
+- [성능 POC 계획](./docs/PERFORMANCE_POC_PLAN.md)
+- [SDK 연동 가이드](./docs/SDK_INTEGRATION.md)
+- [자동 계측 가이드](./docs/AUTO_INSTRUMENTATION.md)
+- [커스텀 메트릭 가이드](./docs/CUSTOM_METRICS.md)
 
 ---
 

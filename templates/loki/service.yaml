@@ -18,6 +18,10 @@ spec:
       targetPort: grpc
       protocol: TCP
       name: grpc
+    - port: {{ .Values.loki.config.gossipPort | default 7946 }}
+      targetPort: gossip
+      protocol: TCP
+      name: gossip
   selector:
     {{- include "observability.selectorLabels" (dict "name" "loki" "instance" .Release.Name) | nindent 4 }}
 ---
@@ -41,6 +45,10 @@ spec:
       targetPort: grpc
       protocol: TCP
       name: grpc
+    - port: {{ .Values.loki.config.gossipPort | default 7946 }}
+      targetPort: gossip
+      protocol: TCP
+      name: gossip
   selector:
     {{- include "observability.selectorLabels" (dict "name" "loki" "instance" .Release.Name) | nindent 4 }}
 ---

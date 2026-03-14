@@ -24,6 +24,14 @@ global:
   # -- 온프렘 스토리지 클래스 (환경에 맞게 변경)
   storageClass: "local-path"
   imagePullSecrets: []
+  objectStorage:
+    minio:
+      # -- 클러스터 내부/외부 MinIO endpoint 모두 가능
+      endpoint: "minio.minio.svc.cluster.local:9000"
+      accessKey: "CHANGE_ME_MINIO_ACCESS_KEY"
+      secretKey: "CHANGE_ME_MINIO_SECRET_KEY"
+      insecure: true
+      forcePathStyle: true
 
 namespace:
   create: true
@@ -88,8 +96,8 @@ grafana:
 # =============================================================================
 loki:
   enabled: true
-  # -- 2노드 환경: 2 replicas로 HA 구성
-  replicas: 2
+  # -- 3노드 환경: shared object storage + memberlist ring 기반 HA
+  replicas: 3
 
   image:
     repository: grafana/loki
@@ -98,7 +106,7 @@ loki:
   config:
     authEnabled: false
     logLevel: info
-    # -- 2노드이므로 replicationFactor=2 (데이터 유실 방지)
+    # -- 3노드 환경에서 2중 복제
     replicationFactor: 2
     retentionPeriod: "720h"         # 30일 보존
     cacheSize: 300
@@ -106,6 +114,12 @@ loki:
     ingestionBurstSizeMb: 60
     maxStreamsPerUser: 30000
     maxQuerySeries: 1500
+    gossipPort: 7946
+
+  storage:
+    backend: s3
+    minio:
+      bucket: "loki"
 
   resources:
     requests:
@@ -141,8 +155,8 @@ loki:
 # =============================================================================
 tempo:
   enabled: true
-  # -- 2노드 환경: 2 replicas로 분산
-  replicas: 2
+  # -- 3노드 환경: shared object storage + memberlist ring 기반 HA
+  replicas: 3
 
   image:
     repository: grafana/tempo
@@ -150,9 +164,16 @@ tempo:
 
   config:
     logLevel: info
+    replicationFactor: 2
     retentionPeriod: "336h"         # 14일 보존
     maxBlockDuration: "5m"
     maxBlockBytes: 1073741824       # 1GB
+    gossipPort: 7946
+
+  storage:
+    backend: s3
+    minio:
+      bucket: "tempo"
 
   resources:
     requests:
