@@ -126,23 +126,24 @@
 
 | 항목 | 설명 |
 |------|------|
-| **역할** | Prometheus 호환 장기 메트릭 저장소. 단일 바이너리로 가볍게 배포 가능하며 PromQL 조회와 Remote Write를 지원 |
+| **역할** | Prometheus 호환 장기 메트릭 저장소. dev/minimal은 single mode, prod는 cluster mode로 운영 가능 |
 | **이미지** | `victoriametrics/victoria-metrics` |
-| **포트** | HTTP: `8428` |
-| **워크로드** | StatefulSet |
+| **포트** | single: `8428`, cluster query: `8481`, cluster ingest: `8480` |
+| **워크로드** | single: StatefulSet, cluster: `vminsert`/`vmselect` Deployment + `vmstorage` StatefulSet |
 
 #### 주요 기능
 - **Prometheus 호환**: PromQL 조회와 Prometheus Remote Write API 지원
-- **경량 배포**: 단일 바이너리로 간단하게 운영 가능
+- **환경별 토폴로지**: 로컬은 single, 운영은 cluster로 분리 가능
 - **장기 보존**: retentionPeriod 기반 메트릭 보존
 - **고성능 쓰기/조회**: 고카디널리티 메트릭에도 강한 편
 
 #### 내부 컴포넌트
 | 컴포넌트 | 역할 |
 |----------|------|
-| **Single Binary** | 수집, 저장, 조회를 단일 프로세스에서 처리 |
-| **Remote Write Endpoint** | Collector/Tempo Metrics Generator가 메트릭 전송 |
-| **PromQL Query Engine** | Grafana에서 메트릭 조회 |
+| **Single Binary** | dev/minimal에서 수집, 저장, 조회를 단일 프로세스에서 처리 |
+| **vminsert** | Collector/Tempo Metrics Generator가 메트릭을 쓰는 ingress endpoint |
+| **vmselect** | Grafana가 PromQL 조회를 수행하는 query endpoint |
+| **vmstorage** | 메트릭 블록을 저장하는 storage 노드 |
 
 ---
 
@@ -414,8 +415,8 @@ otelCollector:
 | **Tempo Replicas** | 1 | 1 | 3 |
 | **Tempo Memory** | 128~512Mi | 256Mi~2Gi | 2~8Gi |
 | **Tempo Retention** | 24h | 168h | 336h (14d) |
-| **VictoriaMetrics Replicas** | 1 | 1 | 2 |
-| **VictoriaMetrics Memory** | 256Mi~1Gi | 512Mi~2Gi | 2~8Gi |
+| **VictoriaMetrics Topology** | single | single | cluster (`vminsert=2`, `vmselect=2`, `vmstorage=3`) |
+| **VictoriaMetrics Memory** | 256Mi~1Gi | 512Mi~2Gi | 4~12Gi |
 | **VictoriaMetrics Retention** | 1d | 7d | 90d |
 | **VictoriaMetrics Storage** | emptyDir | 10Gi | 100Gi |
 | **OTel Replicas** | 1 | 1 | 3 |
@@ -448,7 +449,13 @@ kubectl get pods -n observability -o wide
 kubectl exec -it <loki-pod> -n observability -- wget -qO- http://localhost:3100/ready
 
 # VictoriaMetrics 상태 확인
+# single mode
 kubectl exec -it <vm-pod> -n observability -- wget -qO- http://localhost:8428/health
+
+# cluster mode
+kubectl exec -it <vmselect-pod> -n observability -- wget -qO- http://localhost:8481/health
+kubectl exec -it <vminsert-pod> -n observability -- wget -qO- http://localhost:8480/health
+kubectl exec -it <vmstorage-pod> -n observability -- wget -qO- http://localhost:8482/health
 
 # Tempo 상태 확인
 kubectl exec -it <tempo-pod> -n observability -- wget -qO- http://localhost:3200/ready
@@ -488,8 +495,13 @@ curl http://localhost:8888/metrics | grep otelcol_exporter
 kubectl logs -l app.kubernetes.io/name=loki -n observability --tail=100
 
 # VictoriaMetrics 메트릭 확인
+# single mode
 kubectl port-forward svc/<release>-observability-stack-vm 8428:8428 -n observability
 curl http://localhost:8428/metrics
+
+# cluster mode query endpoint
+kubectl port-forward svc/<release>-observability-stack-vm 8481:8481 -n observability
+curl "http://localhost:8481/select/0/prometheus/api/v1/query?query=up"
 ```
 
 ---
@@ -524,8 +536,8 @@ observability-stack/
     │   └── service.yaml                # Tempo Service (ClusterIP + Headless) + SA
     ├── mimir/                         # VictoriaMetrics 템플릿 보관 경로(legacy path)
     │   ├── configmap.yaml              # VictoriaMetrics placeholder 설정
-    │   ├── statefulset.yaml            # VictoriaMetrics StatefulSet
-    │   └── service.yaml                # VictoriaMetrics Service + SA
+    │   ├── statefulset.yaml            # VictoriaMetrics single/cluster workload 템플릿
+    │   └── service.yaml                # VictoriaMetrics single/cluster Service + SA
     └── otel-collector/
         ├── configmap.yaml              # OTel Collector 파이프라인 설정
         ├── deployment.yaml             # OTel Collector Deployment/DaemonSet
