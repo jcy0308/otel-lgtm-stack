@@ -2,7 +2,7 @@
 # Observability Stack - Default Values
 # =============================================================================
 # 이 파일은 기본 값을 정의합니다.
-# 환경별 values 파일 (values-minimal.yaml, values-prod.yaml)로 오버라이드하세요.
+# 환경별 values 파일 (values-dev.yaml, values-prod.yaml)로 오버라이드하세요.
 # =============================================================================
 
 # -- 글로벌 설정
@@ -19,11 +19,16 @@ global:
   imagePullSecrets: []
   objectStorage:
     minio:
+      # -- 외부 MinIO endpoint (예: minio.example.com:9000)
       endpoint: ""
       accessKey: ""
       secretKey: ""
       insecure: false
       forcePathStyle: true
+      buckets:
+        loki: "loki"
+        tempo: "tempo"
+        mimir: "mimir"
 
 # -- 이름 오버라이드
 nameOverride: ""
@@ -115,11 +120,6 @@ loki:
     maxQuerySeries: 500
     gossipPort: 7946
 
-  storage:
-    backend: filesystem
-    minio:
-      bucket: ""
-
   # -- 리소스 설정
   resources:
     requests:
@@ -166,11 +166,6 @@ tempo:
     maxBlockBytes: 1073741824     # 1GB
     gossipPort: 7946
 
-  storage:
-    backend: local
-    minio:
-      bucket: ""
-
   # -- 리소스 설정
   resources:
     requests:
@@ -200,7 +195,7 @@ tempo:
 # VictoriaMetrics - 장기 메트릭 스토리지
 # =============================================================================
 victoriaMetrics:
-  enabled: true
+  enabled: false
   mode: single
   replicas: 1
 
@@ -252,6 +247,47 @@ victoriaMetrics:
         httpPort: 8482
         vminsertPort: 8400
         vmselectPort: 8401
+
+  # -- 스케줄링 설정
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# =============================================================================
+# Grafana Mimir - 추가 메트릭 스토리지 (모놀리식)
+# =============================================================================
+mimir:
+  enabled: true
+  # -- 모놀리식은 단일 replica 권장
+  replicas: 1
+
+  image:
+    repository: grafana/mimir
+    tag: "2.17.7"
+    pullPolicy: IfNotPresent
+
+  # -- Mimir 설정
+  config:
+    logLevel: info
+
+  # -- 리소스 설정
+  resources:
+    requests:
+      cpu: 100m
+      memory: 512Mi
+    limits:
+      cpu: 1000m
+      memory: 2Gi
+
+  # -- 퍼시스턴스 설정
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 20Gi
+
+  # -- 서비스 포트
+  service:
+    httpPort: 9009
 
   # -- 스케줄링 설정
   nodeSelector: {}
@@ -322,6 +358,7 @@ otelCollector:
           scrapeInterval: 30s
           metricsPath: /metrics
           targets: []
+        additionalJobs: []
 
     k8sEventsReceiver:
       enabled: false

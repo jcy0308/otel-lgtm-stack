@@ -1,4 +1,4 @@
-{{- if .Values.victoriaMetrics.enabled }}
+{{- if and .Values.victoriaMetrics.enabled (not .Values.mimir.enabled) }}
 {{- if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}
 {{- $ns := include "observability.namespace" . }}
 {{- $fullname := include "observability.fullname" . }}
