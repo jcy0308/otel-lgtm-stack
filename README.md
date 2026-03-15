@@ -86,7 +86,7 @@
 
 - Kubernetes 1.24+
 - Helm 3.10+
-- 최소 8GB 메모리 가용 (minimal), 96GB (prod)
+- 최소 8GB 메모리 가용 (dev), 96GB (prod)
 - PersistentVolume 프로비저너 (prod)
 
 ### 기본 설치
@@ -107,24 +107,23 @@ kubectl get pods -n observability
 
 ## 🌍 환경별 설치
 
-### 개발/테스트 환경 (Minimal)
+### 개발/테스트 환경 (Dev)
 
-최소 리소스로 빠르게 시작. 퍼시스턴스 없음, 1일 보존.
+개발/테스트용 밸런스 설정.
 
 ```bash
 helm install observability . \
-  -f values-minimal.yaml \
+  -f values-dev.yaml \
   -n observability \
   --create-namespace
 ```
 
 | 항목 | 설정 |
 |------|------|
-| 레플리카 | 모두 1개 |
-| 퍼시스턴스 | 비활성화 (emptyDir) |
-| 보존 기간 | 24시간 |
-| 총 리소스 | ~1.5 CPU, ~1.5GB RAM |
-| OTel Receivers | OTLP만 활성화 |
+| 레플리카 | 단일/소규모 구성 |
+| 퍼시스턴스 | 활성화 |
+| 보존 기간 | Logs/Traces 3일, Metrics 7일 |
+| OTel Receivers | 운영에 가까운 수집 구성 |
 
 ### 프로덕션 환경 (Production)
 
@@ -257,6 +256,9 @@ kubectl exec -it <vmselect-pod> -n observability -- wget -qO- http://localhost:8
 kubectl exec -it <vminsert-pod> -n observability -- wget -qO- http://localhost:8480/health
 kubectl exec -it <vmstorage-pod> -n observability -- wget -qO- http://localhost:8482/health
 
+# Mimir 상태 확인 (monolithic)
+kubectl exec -it <mimir-pod> -n observability -- wget -qO- http://localhost:9009/ready
+
 # Tempo 상태 확인
 kubectl exec -it <tempo-pod> -n observability -- wget -qO- http://localhost:3200/ready
 
@@ -302,6 +304,10 @@ curl http://localhost:8428/metrics
 # cluster mode query endpoint
 kubectl port-forward svc/<release>-observability-stack-vm 8481:8481 -n observability
 curl "http://localhost:8481/select/0/prometheus/api/v1/query?query=up"
+
+# Mimir 메트릭 조회
+kubectl port-forward svc/<release>-observability-stack-mimir 9009:9009 -n observability
+curl "http://localhost:9009/prometheus/api/v1/query?query=up"
 ```
 
 ---
@@ -313,7 +319,7 @@ observability-stack/
 ├── Chart.yaml                          # 차트 메타데이터
 ├── .helmignore                         # Helm 빌드 시 무시 패턴
 ├── values.yaml                         # 기본 Values
-├── values-minimal.yaml                 # 개발/테스트용 최소 Values
+├── values-dev.yaml                     # 개발/테스트용 Values
 ├── values-prod.yaml                    # 프로덕션용 Values
 ├── README.md                           # 문서
 └── templates/
@@ -338,6 +344,10 @@ observability-stack/
     │   ├── configmap.yaml              # VictoriaMetrics placeholder 설정
     │   ├── statefulset.yaml            # VictoriaMetrics single/cluster workload 템플릿
     │   └── service.yaml                # VictoriaMetrics single/cluster Service + SA
+    ├── mimir/
+    │   ├── configmap.yaml              # Mimir monolithic 설정
+    │   ├── statefulset.yaml            # Mimir monolithic StatefulSet
+    │   └── service.yaml                # Mimir Service (ClusterIP + Headless) + SA
     └── otel-collector/
         ├── configmap.yaml              # OTel Collector 파이프라인 설정
         ├── deployment.yaml             # OTel Collector Deployment/DaemonSet

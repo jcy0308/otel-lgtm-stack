@@ -26,12 +26,16 @@ global:
   imagePullSecrets: []
   objectStorage:
     minio:
-      # -- 클러스터 내부/외부 MinIO endpoint 모두 가능
-      endpoint: "minio.minio.svc.cluster.local:9000"
+      # -- 클러스터 외부 MinIO endpoint (예: minio.example.com:9000)
+      endpoint: "minio.example.com:9000"
       accessKey: "CHANGE_ME_MINIO_ACCESS_KEY"
       secretKey: "CHANGE_ME_MINIO_SECRET_KEY"
       insecure: true
       forcePathStyle: true
+      buckets:
+        loki: "loki"
+        tempo: "tempo"
+        mimir: "mimir"
 
 namespace:
   create: true
@@ -52,7 +56,7 @@ grafana:
   # -- 프로덕션에서는 반드시 안전한 비밀번호를 사용하세요
   adminPassword: "CHANGE_ME_STRONG_PASSWORD"
   anonymousAuth: false
-  rootUrl: "https://grafana.example.com"
+  rootUrl: "https://grafana.prod.example.com"
   logLevel: info
 
   resources:
@@ -75,7 +79,7 @@ grafana:
   ingress:
     enabled: true
     ingressClassName: nginx
-    host: grafana.example.com
+    host: grafana.prod.example.com
     tls: true
     tlsSecret: grafana-tls
     annotations:
@@ -115,11 +119,6 @@ loki:
     maxStreamsPerUser: 30000
     maxQuerySeries: 1500
     gossipPort: 7946
-
-  storage:
-    backend: s3
-    minio:
-      bucket: "loki"
 
   resources:
     requests:
@@ -170,11 +169,6 @@ tempo:
     maxBlockBytes: 1073741824       # 1GB
     gossipPort: 7946
 
-  storage:
-    backend: s3
-    minio:
-      bucket: "tempo"
-
   resources:
     requests:
       cpu: 500m
@@ -207,7 +201,7 @@ tempo:
 # VictoriaMetrics - 프로덕션
 # =============================================================================
 victoriaMetrics:
-  enabled: true
+  enabled: false
   # -- 3노드 환경: vminsert/vmselect/vmstorage를 분리한 cluster 모드 사용
   mode: cluster
 
@@ -272,6 +266,52 @@ victoriaMetrics:
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================
+# Grafana Mimir - 프로덕션 (모놀리식)
+# =============================================================================
+mimir:
+  enabled: true
+  # -- 모놀리식은 단일 replica로 운용
+  replicas: 1
+
+  image:
+    repository: grafana/mimir
+    tag: "2.17.7"
+
+  config:
+    logLevel: info
+
+  resources:
+    requests:
+      cpu: 1500m
+      memory: 4Gi
+    limits:
+      cpu: 6000m
+      memory: 12Gi
+
+  persistence:
+    enabled: true
+    accessMode: ReadWriteOnce
+    size: 100Gi
+
+  service:
+    httpPort: 9009
+
+  nodeSelector: {}
+  tolerations:
+    - key: "node-role.kubernetes.io/control-plane"
+      operator: "Exists"
+      effect: "NoSchedule"
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+        - weight: 100
+          podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/name: mimir
+            topologyKey: kubernetes.io/hostname
+
+# =============================================================================
 # OpenTelemetry Collector - 프로덕션
 # =============================================================================
 otelCollector:
@@ -329,6 +369,17 @@ otelCollector:
                 env: prod
                 system: onprem
                 db_name: mysql-main
+        additionalJobs:
+          - enabled: false
+            jobName: external-node-exporter
+            scrapeInterval: 30s
+            metricsPath: /metrics
+            targets:
+              - endpoint: 10.10.30.20:9100
+                labels:
+                  service_name: node-exporter
+                  env: prod
+                  system: external
 
     k8sEventsReceiver:
       enabled: true

@@ -88,6 +88,22 @@ data:
                   {{- end }}
                 {{- end }}
             {{- end }}
+            {{- range .additionalJobs }}
+            {{- if .enabled }}
+            - job_name: '{{ .jobName }}'
+              scrape_interval: {{ .scrapeInterval | default "30s" }}
+              metrics_path: {{ .metricsPath | default "/metrics" }}
+              static_configs:
+                {{- range .targets }}
+                - targets:
+                    - {{ .endpoint | quote }}
+                  {{- if .labels }}
+                  labels:
+                    {{- toYaml .labels | nindent 20 }}
+                  {{- end }}
+                {{- end }}
+            {{- end }}
+            {{- end }}
             {{- end }}
       {{- end }}
 
@@ -220,9 +236,26 @@ data:
       {{- end }}
 
       # VictoriaMetrics로 메트릭 전송 (Prometheus Remote Write)
-      {{- if .Values.victoriaMetrics.enabled }}
-      prometheusremotewrite:
+      {{- if and (not .Values.mimir.enabled) .Values.victoriaMetrics.enabled }}
+      prometheusremotewrite/vm:
         endpoint: http://{{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}{{ include "observability.fullname" . }}-vm-insert:{{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort }}/insert/0/prometheus{{ else }}{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}{{ end }}/api/v1/write
+        tls:
+          insecure: true
+        resource_to_telemetry_conversion:
+          enabled: true
+        {{- if .Values.otelCollector.config.exporterRetry.enabled }}
+        retry_on_failure:
+          enabled: true
+          initial_interval: 5s
+          max_interval: 30s
+          max_elapsed_time: 300s
+        {{- end }}
+      {{- end }}
+
+      # Mimir로 메트릭 전송 (Prometheus Remote Write)
+      {{- if .Values.mimir.enabled }}
+      prometheusremotewrite/mimir:
+        endpoint: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort | default 9009 }}/api/v1/push
         tls:
           insecure: true
         resource_to_telemetry_conversion:
@@ -320,8 +353,10 @@ data:
             {{- end }}
             - batch
           exporters:
-            {{- if .Values.victoriaMetrics.enabled }}
-            - prometheusremotewrite
+            {{- if .Values.mimir.enabled }}
+            - prometheusremotewrite/mimir
+            {{- else if .Values.victoriaMetrics.enabled }}
+            - prometheusremotewrite/vm
             {{- end }}
             {{- if .Values.otelCollector.config.debug }}
             - debug

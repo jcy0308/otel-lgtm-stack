@@ -36,7 +36,17 @@ data:
       - name: Mimir
         orgId: 1
     datasources:
-    {{- if .Values.victoriaMetrics.enabled }}
+    {{- if .Values.mimir.enabled }}
+    - name: Mimir
+      uid: mimir
+      type: prometheus
+      access: proxy
+      url: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort | default 9009 }}/prometheus
+      isDefault: true
+      editable: true
+      jsonData:
+        timeInterval: "15s"
+    {{- else if .Values.victoriaMetrics.enabled }}
     - name: VictoriaMetrics
       uid: victoriametrics
       type: prometheus
@@ -73,9 +83,9 @@ data:
           filterByTraceID: true
           filterBySpanID: false
         tracesToMetrics:
-          datasourceUid: {{ if .Values.victoriaMetrics.enabled }}"victoriametrics"{{ else }}""{{ end }}
+          datasourceUid: {{ if .Values.mimir.enabled }}"mimir"{{ else if .Values.victoriaMetrics.enabled }}"victoriametrics"{{ else }}""{{ end }}
         serviceMap:
-          datasourceUid: {{ if .Values.victoriaMetrics.enabled }}"victoriametrics"{{ else }}""{{ end }}
+          datasourceUid: {{ if .Values.mimir.enabled }}"mimir"{{ else if .Values.victoriaMetrics.enabled }}"victoriametrics"{{ else }}""{{ end }}
         nodeGraph:
           enabled: true
     {{- end }}

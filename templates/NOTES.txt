@@ -17,8 +17,11 @@ Components:
 {{- if .Values.tempo.enabled }}
   ✅ Tempo          - Distributed Tracing
 {{- end }}
-{{- if .Values.victoriaMetrics.enabled }}
+{{- if and .Values.victoriaMetrics.enabled (not .Values.mimir.enabled) }}
   ✅ VictoriaMetrics - Metrics Storage
+{{- end }}
+{{- if .Values.mimir.enabled }}
+  ✅ Mimir          - Metrics Storage
 {{- end }}
 {{- if .Values.otelCollector.enabled }}
   ✅ OTel Collector - Telemetry Pipeline

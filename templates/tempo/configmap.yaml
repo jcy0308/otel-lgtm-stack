@@ -1,5 +1,6 @@
 {{- if .Values.tempo.enabled }}
 {{- $minio := .Values.global.objectStorage.minio | default dict }}
+{{- $tempoBucket := dig "buckets" "tempo" "tempo" $minio }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -52,7 +53,10 @@ data:
       storage:
         path: /var/tempo/generator/wal
         remote_write:
-        {{- if .Values.victoriaMetrics.enabled }}
+        {{- if .Values.mimir.enabled }}
+          - url: http://{{ include "observability.fullname" . }}-mimir:{{ .Values.mimir.service.httpPort | default 9009 }}/api/v1/push
+            send_exemplars: true
+        {{- else if .Values.victoriaMetrics.enabled }}
           - url: http://{{ if eq (.Values.victoriaMetrics.mode | default "single") "cluster" }}{{ include "observability.fullname" . }}-vm-insert:{{ .Values.victoriaMetrics.cluster.vminsert.service.httpPort }}/insert/0/prometheus{{ else }}{{ include "observability.fullname" . }}-vm:{{ .Values.victoriaMetrics.service.httpPort }}{{ end }}/api/v1/write
             send_exemplars: true
         {{- end }}
@@ -61,21 +65,16 @@ data:
 
     storage:
       trace:
-        backend: {{ .Values.tempo.storage.backend | default "local" }}
+        backend: s3
         wal:
           path: /var/tempo/wal
-        {{- if eq (.Values.tempo.storage.backend | default "local") "s3" }}
         s3:
-          bucket: {{ .Values.tempo.storage.minio.bucket | quote }}
+          bucket: {{ $tempoBucket | quote }}
           endpoint: {{ $minio.endpoint | quote }}
           access_key: {{ $minio.accessKey | quote }}
           secret_key: {{ $minio.secretKey | quote }}
           insecure: {{ $minio.insecure | default false }}
           forcepathstyle: {{ $minio.forcePathStyle | default true }}
-        {{- else }}
-        local:
-          path: /var/tempo/blocks
-        {{- end }}
         block:
           bloom_filter_false_positive: 0.05
           v2_index_downsample_bytes: 1000
