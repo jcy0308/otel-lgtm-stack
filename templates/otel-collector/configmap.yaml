@@ -78,6 +78,9 @@ data:
             - job_name: '{{ .mysql.jobName | default "onprem-mysql" }}'
               scrape_interval: {{ .mysql.scrapeInterval | default "30s" }}
               metrics_path: {{ .mysql.metricsPath | default "/metrics" }}
+              {{- if .mysql.bearerToken }}
+              bearer_token: {{ .mysql.bearerToken | quote }}
+              {{- end }}
               static_configs:
                 {{- range .mysql.targets }}
                 - targets:
@@ -93,6 +96,9 @@ data:
             - job_name: '{{ .jobName }}'
               scrape_interval: {{ .scrapeInterval | default "30s" }}
               metrics_path: {{ .metricsPath | default "/metrics" }}
+              {{- if .bearerToken }}
+              bearer_token: {{ .bearerToken | quote }}
+              {{- end }}
               static_configs:
                 {{- range .targets }}
                 - targets:

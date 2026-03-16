@@ -1,32 +1,25 @@
 # =============================================================================
-# Observability Stack - Production Values (프로덕션 환경)
+# Observability Stack - Production Values
 # =============================================================================
-# 온프렘 3노드 클러스터에 최적화된 프로덕션 설정입니다.
+# Optimized for a 3-node on-prem production cluster.
 #
-# 클러스터 구성:
-#   - 컨트롤 노드 1대 (워커 겸용) + 워커 노드 2대
-#   - 각 노드: Intel Xeon E5-2620 v4 32코어, 128GB RAM
-#   - 총 가용: 96코어, 384GB RAM (시스템/K8s 오버헤드 제외 시 약 84코어, 330GB)
+# Cluster profile:
+#   - 1 control-plane node (also schedulable) + 2 worker nodes
+#   - Node spec: Intel Xeon E5-2620 v4, 32 vCPU, 128Gi memory
 #
-# 리소스 배분 전략:
-#   - Observability 스택 총 requests: ~14 CPU, ~28GB RAM
-#   - 나머지 리소스는 워크로드 및 시스템 컴포넌트용으로 확보
-#   - VictoriaMetrics cluster는 vmstorage=3, vminsert=2, vmselect=2로 구성
-#   - preferred anti-affinity로 최대한 분산, 불가능 시에도 스케줄링 보장
-#
-# 사용법:
+# Usage:
 #   helm install observability . -f values-prod.yaml
 # =============================================================================
 
 global:
   clusterName: "prod-cluster"
   environment: "production"
-  # -- 온프렘 스토리지 클래스 (환경에 맞게 변경)
+  # -- On-prem storage class.
   storageClass: "local-path"
   imagePullSecrets: []
   objectStorage:
     minio:
-      # -- 클러스터 외부 MinIO endpoint (예: minio.example.com:9000)
+      # -- External MinIO S3 API endpoint used by Loki/Tempo/Mimir.
       endpoint: "minio.example.com:9000"
       accessKey: "CHANGE_ME_MINIO_ACCESS_KEY"
       secretKey: "CHANGE_ME_MINIO_SECRET_KEY"
@@ -41,11 +34,11 @@ namespace:
   create: true
 
 # =============================================================================
-# Grafana - 프로덕션
+# Grafana - Production
 # =============================================================================
 grafana:
   enabled: true
-  # -- 2노드 환경: Grafana는 stateless에 가까우므로 1 replica로 충분
+  # -- Grafana runs as a single replica.
   replicas: 1
 
   image:
@@ -53,7 +46,7 @@ grafana:
     tag: "11.4.0"
 
   adminUser: admin
-  # -- 프로덕션에서는 반드시 안전한 비밀번호를 사용하세요
+  # -- Set via private values with a strong password.
   adminPassword: "CHANGE_ME_STRONG_PASSWORD"
   anonymousAuth: false
   rootUrl: "https://grafana.prod.example.com"
@@ -87,7 +80,7 @@ grafana:
       nginx.ingress.kubernetes.io/proxy-body-size: "50m"
       nginx.ingress.kubernetes.io/proxy-read-timeout: "600"
 
-  # -- 컨트롤 노드도 워커로 사용하므로 nodeSelector 제거, control-plane toleration 추가
+  # -- Allow scheduling on control-plane in small clusters.
   nodeSelector: {}
   tolerations:
     - key: "node-role.kubernetes.io/control-plane"
@@ -96,11 +89,11 @@ grafana:
   affinity: {}
 
 # =============================================================================
-# Loki - 프로덕션
+# Loki - Production (Distributed Single-Binary Ring)
 # =============================================================================
 loki:
   enabled: true
-  # -- 3노드 환경: shared object storage + memberlist ring 기반 HA
+  # -- Multi-replica Loki with memberlist ring.
   replicas: 3
 
   image:
@@ -110,9 +103,9 @@ loki:
   config:
     authEnabled: false
     logLevel: info
-    # -- 3노드 환경에서 2중 복제
+    # -- Replication factor for ring-based HA.
     replicationFactor: 2
-    retentionPeriod: "720h"         # 30일 보존
+    retentionPeriod: "720h"         # 30 days
     cacheSize: 300
     ingestionRateMb: 30
     ingestionBurstSizeMb: 60
@@ -140,7 +133,7 @@ loki:
       effect: "NoSchedule"
   affinity:
     podAntiAffinity:
-      # -- preferred: 2노드에서 최대한 분산하되, 스케줄링 실패 방지
+      # -- Soft anti-affinity to spread when possible.
       preferredDuringSchedulingIgnoredDuringExecution:
         - weight: 100
           podAffinityTerm:
@@ -150,11 +143,11 @@ loki:
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================
-# Tempo - 프로덕션
+# Tempo - Production (Distributed Single-Binary Ring)
 # =============================================================================
 tempo:
   enabled: true
-  # -- 3노드 환경: shared object storage + memberlist ring 기반 HA
+  # -- Multi-replica Tempo with memberlist ring.
   replicas: 3
 
   image:
@@ -164,9 +157,9 @@ tempo:
   config:
     logLevel: info
     replicationFactor: 2
-    retentionPeriod: "336h"         # 14일 보존
+    retentionPeriod: "336h"         # 14 days
     maxBlockDuration: "5m"
-    maxBlockBytes: 1073741824       # 1GB
+    maxBlockBytes: 1073741824       # 1GiB
     gossipPort: 7946
 
   resources:
@@ -198,11 +191,11 @@ tempo:
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================
-# VictoriaMetrics - 프로덕션
+# VictoriaMetrics - Production (Disabled, fallback only)
 # =============================================================================
 victoriaMetrics:
   enabled: false
-  # -- 3노드 환경: vminsert/vmselect/vmstorage를 분리한 cluster 모드 사용
+  # -- Keep disabled; Mimir is the default metrics backend.
   mode: cluster
 
   image:
@@ -229,7 +222,7 @@ victoriaMetrics:
     httpPort: 8428
 
   cluster:
-    # -- 3노드 환경: 3개의 vmstorage에 2중 복제
+    # -- Example cluster sizing for fallback usage.
     replicationFactor: 2
     dedupMinScrapeInterval: 15s
 
@@ -266,11 +259,11 @@ victoriaMetrics:
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================
-# Grafana Mimir - 프로덕션 (모놀리식)
+# Grafana Mimir - Production (Monolithic)
 # =============================================================================
 mimir:
   enabled: true
-  # -- 모놀리식은 단일 replica로 운용
+  # -- Monolithic Mimir is intentionally single replica.
   replicas: 1
 
   image:
@@ -312,14 +305,14 @@ mimir:
             topologyKey: kubernetes.io/hostname
 
 # =============================================================================
-# OpenTelemetry Collector - 프로덕션
+# OpenTelemetry Collector - Production
 # =============================================================================
 otelCollector:
   enabled: true
 
-  # -- DaemonSet: 각 노드에 1개씩 배포되어 호스트 메트릭/로그 직접 수집
+  # -- DaemonSet: one collector per node for host metrics and logs.
   kind: DaemonSet
-  # replicas: DaemonSet에서는 무시됨 (노드 수만큼 자동 배포)
+  # replicas: ignored for DaemonSet.
   replicas: 2
 
   image:
@@ -343,7 +336,7 @@ otelCollector:
     logLevel: info
     debug: false
 
-    # -- 높은 처리량을 위한 배치 설정
+    # -- Batch tuning for higher throughput.
     batchSize: 16384
     batchTimeout: "1s"
     batchMaxSize: 32768
@@ -353,7 +346,7 @@ otelCollector:
 
     maxRecvMsgSizeMib: 8
 
-    # -- 모든 Receiver 활성화
+    # -- Receivers.
     prometheusReceiver:
       enabled: true
       externalScrapeTargets:
@@ -385,12 +378,12 @@ otelCollector:
       enabled: true
 
     hostMetricsReceiver:
-      enabled: true      # DaemonSet이므로 각 노드에서 호스트 메트릭 직접 수집
+      enabled: true      # Host metrics are collected from each node.
 
     kubeletStatsReceiver:
       enabled: true
 
-    # -- Filelog Receiver: DaemonSet에서 각 노드의 Pod 로그 수집
+    # -- Filelog receiver for pod logs on each node.
     filelogReceiver:
       enabled: true
       includeFilePath: true
@@ -402,17 +395,17 @@ otelCollector:
         - type: container
           id: container-parser
 
-    # -- 모든 Processor 활성화
+    # -- Processors.
     k8sAttributesProcessor:
       enabled: true
 
     filterProcessor:
       enabled: true
       metricFilters:
-        # 불필요한 메트릭 필터링 (예시)
+        # Example metric filter.
         - 'name == "k8s.container.cpu_limit" or name == "k8s.container.memory_limit"'
 
-    # -- 재시도 및 큐 설정 (데이터 손실 방지)
+    # -- Retry/queue to reduce data loss.
     exporterRetry:
       enabled: true
 
@@ -426,11 +419,11 @@ otelCollector:
     - key: "node-role.kubernetes.io/control-plane"
       operator: "Exists"
       effect: "NoSchedule"
-  # -- DaemonSet은 모든 노드에 자동 배포되므로 anti-affinity 불필요
+  # -- Anti-affinity is not required for DaemonSet.
   affinity: {}
 
 # =============================================================================
-# Kube State Metrics - 프로덕션
+# Kube State Metrics - Production
 # =============================================================================
 kubeStateMetrics:
   enabled: true
@@ -453,7 +446,7 @@ kubeStateMetrics:
     port: 8080
     telemetryPort: 8081
 
-  # -- 수집할 리소스 종류
+  # -- Resource types to collect.
   collectors:
     - pods
     - deployments
@@ -491,7 +484,7 @@ kubeStateMetrics:
   affinity: {}
 
 # =============================================================================
-# Node Exporter - 프로덕션 (DaemonSet)
+# Node Exporter - Production (DaemonSet)
 # =============================================================================
 nodeExporter:
   enabled: true
