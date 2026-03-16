@@ -36,6 +36,11 @@ data:
       sharding_ring:
         kvstore:
           store: memberlist
+    {{- if .Values.mimir.config.retentionPeriod }}
+
+    limits:
+      compactor_blocks_retention_period: {{ .Values.mimir.config.retentionPeriod | quote }}
+    {{- end }}
 
     distributor:
       ring:

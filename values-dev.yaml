@@ -105,7 +105,7 @@ loki:
     logLevel: info
     # -- Replication factor is 1 for single-replica dev mode.
     replicationFactor: 1
-    retentionPeriod: "72h"          # 3 days
+    retentionPeriod: "2160h"        # 90 days (3 months)
     cacheSize: 100
     ingestionRateMb: 10
     ingestionBurstSizeMb: 20
@@ -156,7 +156,7 @@ tempo:
   config:
     logLevel: info
     replicationFactor: 1
-    retentionPeriod: "72h"          # 3 days
+    retentionPeriod: "2160h"        # 90 days (3 months)
     maxBlockDuration: "5m"
     maxBlockBytes: 268435456        # 256MiB
 
@@ -247,6 +247,7 @@ mimir:
 
   config:
     logLevel: info
+    retentionPeriod: "2160h"        # 90 days (3 months)
 
   resources:
     requests:
