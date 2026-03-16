@@ -59,6 +59,9 @@ data:
         secret_access_key: {{ $minio.secretKey | quote }}
         insecure: {{ $minio.insecure | default false }}
 
+    ruler:
+      rule_path: /var/mimir/rules
+
     server:
       http_listen_port: {{ .Values.mimir.service.httpPort | default 9009 }}
       log_level: {{ .Values.mimir.config.logLevel | default "info" }}

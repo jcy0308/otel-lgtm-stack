@@ -35,6 +35,7 @@ spec:
           imagePullPolicy: {{ .Values.mimir.image.pullPolicy | default "IfNotPresent" }}
           args:
             - -config.file=/etc/mimir/mimir.yaml
+            - -activity-tracker.filepath=/var/mimir/metrics-activity.log
           ports:
             - name: http
               containerPort: {{ .Values.mimir.service.httpPort | default 9009 }}
