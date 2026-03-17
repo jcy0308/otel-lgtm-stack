@@ -36,10 +36,15 @@ data:
       sharding_ring:
         kvstore:
           store: memberlist
-    {{- if .Values.mimir.config.retentionPeriod }}
+    {{- if or .Values.mimir.config.retentionPeriod .Values.mimir.config.outOfOrderTimeWindow }}
 
     limits:
+      {{- if .Values.mimir.config.retentionPeriod }}
       compactor_blocks_retention_period: {{ .Values.mimir.config.retentionPeriod | quote }}
+      {{- end }}
+      {{- if .Values.mimir.config.outOfOrderTimeWindow }}
+      out_of_order_time_window: {{ .Values.mimir.config.outOfOrderTimeWindow }}
+      {{- end }}
     {{- end }}
 
     distributor:

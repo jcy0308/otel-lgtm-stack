@@ -248,6 +248,7 @@ mimir:
   config:
     logLevel: info
     retentionPeriod: "2160h"        # 90 days (3 months)
+    outOfOrderTimeWindow: "2m"
 
   resources:
     requests:
